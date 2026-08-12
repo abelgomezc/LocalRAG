@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS documentos (
+    id BIGSERIAL PRIMARY KEY,
+    nombre_archivo VARCHAR(255) NOT NULL,
+    tipo_archivo VARCHAR(50) NOT NULL,
+    tamano_bytes BIGINT NOT NULL,
+    estado VARCHAR(50) NOT NULL,
+    total_chunks INTEGER NOT NULL DEFAULT 0,
+    fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
