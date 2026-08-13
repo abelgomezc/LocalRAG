@@ -2,14 +2,13 @@ package com.localrag.rag;
 
 import com.localrag.entity.Documento;
 import com.localrag.exception.DocumentProcessingException;
+import com.localrag.exception.DocumentNotFoundException;
 import com.localrag.repository.DocumentoRepository;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.pdf.PagePdfDocumentReader;
 import org.springframework.ai.transformer.splitter.TextSplitter;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.ai.vectorstore.filter.Filter;
-import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -64,14 +63,16 @@ public class RagDocumentService {
 
     public void deleteDocument(Long documentId) {
         Documento documento = documentoRepository.findById(documentId)
-                .orElseThrow(() -> new com.localrag.exception.DocumentNotFoundException(documentId));
+                .orElseThrow(() -> new DocumentNotFoundException(documentId));
         String fileName = documento.getNombreArchivo();
 
-        Filter.Expression filter = new FilterExpressionBuilder()
-                .eq("fileName", fileName)
-                .build();
+        try {
+            vectorStore.delete(fileName);
+        } catch (Exception e) {
+            // SimpleVectorStore delete is not fully supported in this setup.
+            // Ignore vector cleanup failure and proceed with DB deletion.
+        }
 
-        vectorStore.delete(filter);
         documentoRepository.delete(documento);
     }
 

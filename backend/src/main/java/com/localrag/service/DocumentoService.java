@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
 @Service
 public class DocumentoService {
 
+    private static final int MAX_DOCUMENTS = 5;
+
     private final DocumentoRepository documentoRepository;
     private final RagDocumentService ragDocumentService;
 
@@ -34,6 +36,10 @@ public class DocumentoService {
                 documento.getEstado(),
                 documento.getTotalChunks()
         );
+    }
+
+    public long countDocuments() {
+        return documentoRepository.count();
     }
 
     public List<DocumentoResponse> listDocuments() {

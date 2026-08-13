@@ -57,7 +57,7 @@
 
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+            <artifactId>spring-ai-vector-store</artifactId>
         </dependency>
 
         <dependency>
@@ -84,6 +84,7 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
+            <version>11.1.0</version>
         </dependency>
 
         <dependency>

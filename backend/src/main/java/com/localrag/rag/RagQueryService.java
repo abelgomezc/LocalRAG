@@ -2,8 +2,10 @@ package com.localrag.rag;
 
 import com.localrag.dto.response.ChatResponse;
 import com.localrag.dto.response.ChatResponse.Source;
+import com.localrag.entity.DocumentRelation;
 import com.localrag.exception.OllamaConnectionException;
 import com.localrag.exception.RagException;
+import com.localrag.service.DocumentRelationService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -19,13 +21,15 @@ public class RagQueryService {
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
+    private final DocumentRelationService relationService;
 
     @Value("${rag.top-k:5}")
     private int topK;
 
-    public RagQueryService(ChatClient.Builder chatClientBuilder, VectorStore vectorStore) {
+    public RagQueryService(ChatClient.Builder chatClientBuilder, VectorStore vectorStore, DocumentRelationService relationService) {
         this.chatClient = chatClientBuilder.build();
         this.vectorStore = vectorStore;
+        this.relationService = relationService;
     }
 
     public ChatResponse ask(String question) {
@@ -36,7 +40,8 @@ public class RagQueryService {
             }
 
             String context = buildContext(relevantDocs);
-            String answer = generateAnswer(question, context);
+            String relationsContext = buildRelationsContext();
+            String answer = generateAnswer(question, context, relationsContext);
             List<Source> sources = buildSources(relevantDocs);
 
             return new ChatResponse(answer, sources);
@@ -53,9 +58,27 @@ public class RagQueryService {
         return sb.toString();
     }
 
-    private String generateAnswer(String question, String context) {
+    private String buildRelationsContext() {
+        List<DocumentRelation> relations = relationService.listAllRelations();
+        if (relations.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("RELACIONES ENTRE DOCUMENTOS:\n");
+        for (DocumentRelation relation : relations) {
+            sb.append(String.format("- Documento %d se relaciona con Documento %d: %s\n",
+                    relation.getSourceDocumentId(),
+                    relation.getTargetDocumentId(),
+                    relation.getDescription() != null ? relation.getDescription() : "Sin descripcion"));
+        }
+        return sb.toString();
+    }
+
+    private String generateAnswer(String question, String context, String relationsContext) {
         String prompt = String.format("""
                 Eres un asistente especializado en responder preguntas utilizando exclusivamente el contexto recuperado de los documentos.
+
+                %s
 
                 CONTEXTO:
                 %s
@@ -65,10 +88,10 @@ public class RagQueryService {
 
                 INSTRUCCIONES:
                 - Responde utilizando principalmente el contexto proporcionado.
-                - No inventes información.
-                - Si el contexto no contiene suficiente información, dilo claramente.
+                - No inventes informacion.
+                - Si el contexto no contiene suficiente informacion, dilo claramente.
                 - Responde de forma clara y concisa.
-                """, context, question);
+                """, relationsContext.isEmpty() ? "" : relationsContext + "\n", context, question);
 
         return chatClient.prompt()
                 .user(prompt)
