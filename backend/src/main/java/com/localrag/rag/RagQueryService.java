@@ -11,6 +11,8 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -18,6 +20,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class RagQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(RagQueryService.class);
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
@@ -32,7 +36,7 @@ public class RagQueryService {
         this.relationService = relationService;
     }
 
-    public ChatResponse ask(String question) {
+    public ChatResponse ask(String question, String language) {
         try {
             List<Document> relevantDocs = vectorStore.similaritySearch(question);
             if (relevantDocs.size() > topK) {
@@ -41,11 +45,12 @@ public class RagQueryService {
 
             String context = buildContext(relevantDocs);
             String relationsContext = buildRelationsContext();
-            String answer = generateAnswer(question, context, relationsContext);
+            String answer = generateAnswer(question, context, relationsContext, language);
             List<Source> sources = buildSources(relevantDocs);
 
             return new ChatResponse(answer, sources);
         } catch (Exception e) {
+            log.error("[CHAT] Error en consulta: {}", e.getMessage());
             throw new OllamaConnectionException("Error al consultar Ollama: " + e.getMessage());
         }
     }
@@ -74,7 +79,8 @@ public class RagQueryService {
         return sb.toString();
     }
 
-    private String generateAnswer(String question, String context, String relationsContext) {
+    private String generateAnswer(String question, String context, String relationsContext, String language) {
+        String lang = language != null && !language.isBlank() ? language : "es";
         String prompt = String.format("""
                 Eres un asistente especializado en responder preguntas utilizando exclusivamente el contexto recuperado de los documentos.
 
@@ -87,11 +93,12 @@ public class RagQueryService {
                 %s
 
                 INSTRUCCIONES:
+                - Responde en idioma %s.
                 - Responde utilizando principalmente el contexto proporcionado.
                 - No inventes informacion.
                 - Si el contexto no contiene suficiente informacion, dilo claramente.
                 - Responde de forma clara y concisa.
-                """, relationsContext.isEmpty() ? "" : relationsContext + "\n", context, question);
+                """, relationsContext.isEmpty() ? "" : relationsContext + "\n", context, question, lang);
 
         return chatClient.prompt()
                 .user(prompt)

@@ -1,5 +1,6 @@
 export interface ChatRequest {
   question: string;
+  language?: string;
 }
 
 export interface ChatSource {

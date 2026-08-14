@@ -6,8 +6,8 @@ const api = axios.create({
 });
 
 export const chatApi = {
-  ask: async (question: string): Promise<ChatResponse> => {
-    const response = await api.post('/chat', { question });
+  ask: async (question: string, language?: string): Promise<ChatResponse> => {
+    const response = await api.post('/chat', { question, language });
     return response.data;
   },
 };

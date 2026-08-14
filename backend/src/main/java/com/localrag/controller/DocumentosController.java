@@ -51,6 +51,11 @@ public class DocumentosController {
                 continue;
             }
 
+            String contentType = file.getContentType();
+            if (contentType == null || !isSupportedContentType(contentType)) {
+                throw new IllegalArgumentException("Tipo de archivo no soportado: " + contentType + ". Solo se permiten PDF, TXT y Markdown.");
+            }
+
             File tempFile = File.createTempFile("upload-", file.getOriginalFilename());
             file.transferTo(tempFile);
 
@@ -58,7 +63,7 @@ public class DocumentosController {
                 DocumentoUploadResponse response = documentoService.uploadDocument(
                         tempFile,
                         file.getOriginalFilename(),
-                        file.getContentType(),
+                        contentType,
                         file.getSize()
                 );
                 responses.add(response);
@@ -68,6 +73,14 @@ public class DocumentosController {
         }
 
         return ResponseEntity.status(HttpStatus.CREATED).body(responses);
+    }
+
+    private boolean isSupportedContentType(String contentType) {
+        return contentType.equalsIgnoreCase("application/pdf")
+                || contentType.equalsIgnoreCase("text/plain")
+                || contentType.equalsIgnoreCase("text/markdown")
+                || contentType.equalsIgnoreCase("text/x-markdown")
+                || contentType.equalsIgnoreCase("text/md");
     }
 
     @GetMapping

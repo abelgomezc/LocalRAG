@@ -26,9 +26,9 @@ class ChatControllerTest {
 
     @Test
     void chat_shouldReturnResponse() {
-        ChatRequest request = new ChatRequest("What is Java?");
+        ChatRequest request = new ChatRequest("What is Java?", "es");
         ChatResponse mockResponse = new ChatResponse("Java is a language.", List.of());
-        when(ragQueryService.ask("What is Java?")).thenReturn(mockResponse);
+        when(ragQueryService.ask("What is Java?", "es")).thenReturn(mockResponse);
 
         var response = chatController.chat(request);
 
@@ -38,7 +38,7 @@ class ChatControllerTest {
 
     @Test
     void chat_shouldThrowOnBlankQuestion() {
-        ChatRequest request = new ChatRequest("   ");
+        ChatRequest request = new ChatRequest("   ", "es");
         assertThrows(IllegalArgumentException.class, () -> chatController.chat(request));
     }
 }

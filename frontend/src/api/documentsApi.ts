@@ -3,6 +3,7 @@ import { Documento } from '../types/document.types';
 
 const api = axios.create({
   baseURL: '/api',
+  timeout: 60000,
 });
 
 export interface DocumentRelation {

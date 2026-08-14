@@ -14,6 +14,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -25,6 +27,8 @@ import java.util.Map;
 
 @Service
 public class RagDocumentService {
+
+    private static final Logger log = LoggerFactory.getLogger(RagDocumentService.class);
 
     private final DocumentoRepository documentoRepository;
     private final VectorStore vectorStore;
@@ -57,23 +61,28 @@ public class RagDocumentService {
             documento.setTotalChunks(chunks.size());
             documentoRepository.save(documento);
         } catch (Exception e) {
+            log.error("[INGEST] Error procesando {}: {}", fileName, e.getMessage());
             throw new DocumentProcessingException("No fue posible procesar el documento: " + e.getMessage());
         }
     }
 
     public void deleteDocument(Long documentId) {
-        Documento documento = documentoRepository.findById(documentId)
-                .orElseThrow(() -> new DocumentNotFoundException(documentId));
-        String fileName = documento.getNombreArchivo();
-
         try {
-            vectorStore.delete(fileName);
-        } catch (Exception e) {
-            // SimpleVectorStore delete is not fully supported in this setup.
-            // Ignore vector cleanup failure and proceed with DB deletion.
-        }
+            Documento documento = documentoRepository.findById(documentId)
+                    .orElseThrow(() -> new DocumentNotFoundException(documentId));
+            String fileName = documento.getNombreArchivo();
 
-        documentoRepository.delete(documento);
+            try {
+                vectorStore.delete(fileName);
+            } catch (Exception e) {
+                log.warn("[DELETE] No se pudieron eliminar vectores de {}: {}", fileName, e.getMessage());
+            }
+
+            documentoRepository.delete(documento);
+        } catch (Exception e) {
+            log.error("[DELETE] Error eliminando documento id {}: {}", documentId, e.getMessage());
+            throw e;
+        }
     }
 
     private List<Document> readDocuments(File file, String fileType) throws IOException {

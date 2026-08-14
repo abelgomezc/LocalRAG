@@ -1,7 +1,11 @@
+import { useApp } from '../context/AppContext';
+
 export function SourceList({ sources }: { sources: { fileName: string; pageNumber?: number; chunkNumber?: number }[] }) {
+  const { t } = useApp();
+
   return (
     <div className="sources">
-      <strong>Fuentes:</strong>
+      <strong>{t('sourcesTitle')}:</strong>
       <ul>
         {sources.map((source, idx) => (
           <li key={idx}>
