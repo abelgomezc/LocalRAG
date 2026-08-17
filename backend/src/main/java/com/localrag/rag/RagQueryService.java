@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -45,9 +47,18 @@ public class RagQueryService {
 
             String context = buildContext(relevantDocs);
             String relationsContext = buildRelationsContext();
-            String answer = generateAnswer(question, context, relationsContext, language);
-            List<Source> sources = buildSources(relevantDocs);
 
+            String answer;
+            try {
+                answer = CompletableFuture.supplyAsync(() ->
+                        generateAnswer(question, context, relationsContext, language)
+                ).get(120, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                log.error("[CHAT] Timeout al generar respuesta para: {}", question);
+                throw new OllamaConnectionException("El modelo tardo demasiado en responder. Intenta nuevamente.");
+            }
+
+            List<Source> sources = buildSources(relevantDocs);
             return new ChatResponse(answer, sources);
         } catch (Exception e) {
             log.error("[CHAT] Error en consulta: {}", e.getMessage());

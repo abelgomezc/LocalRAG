@@ -1,4 +1,4 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 import { Documento } from '../types/document.types';
 
 const api = axios.create({
@@ -32,6 +32,10 @@ export const documentsApi = {
 
   delete: async (id: number): Promise<void> => {
     await api.delete(`/documents/${id}`);
+  },
+
+  deleteAll: async (): Promise<void> => {
+    await api.delete('/documents');
   },
 
   createRelation: async (sourceDocumentId: number, targetDocumentId: number, description: string): Promise<DocumentRelation> => {

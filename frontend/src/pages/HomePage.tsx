@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { DocumentUpload } from '../components/DocumentUpload';
 import { DocumentList } from '../components/DocumentList';
 import { DocumentGraph } from '../components/DocumentGraph';
@@ -18,6 +18,13 @@ export function HomePage() {
   const [hasDocuments, setHasDocuments] = useState(false);
   const [documents, setDocuments] = useState<{ id: number; fileName: string; status: string }[]>([]);
   const [health, setHealth] = useState<{ application: string; ollama: string; database: string } | null>(null);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      setTheme(savedTheme);
+    }
+  }, []);
 
   useEffect(() => {
     checkDocuments();
@@ -73,6 +80,37 @@ export function HomePage() {
       ]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+  };
+
+  const handleClearSystem = async () => {
+    if (loading) {
+      alert(language === 'es' ? 'No se puede limpiar el sistema mientras hay una consulta en curso.' : 'Cannot clear system while a query is in progress.');
+      return;
+    }
+    if (!documents.length) {
+      alert(language === 'es' ? 'No hay documentos para eliminar.' : 'No documents to delete.');
+      return;
+    }
+    const confirmMessage = language === 'es'
+      ? `¿Estás seguro? Se eliminarán ${documents.length} documento(s) permanentemente.`
+      : `Are you sure? ${documents.length} document(s) will be permanently deleted.`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+    try {
+      await documentsApi.deleteAll();
+      await checkDocuments();
+      setMessages([]);
+      alert(language === 'es' ? 'Sistema limpiado correctamente.' : 'System cleared successfully.');
+    } catch (err: any) {
+      alert(err?.message || (language === 'es' ? 'Error al limpiar el sistema' : 'Error clearing system'));
     }
   };
 
@@ -132,11 +170,11 @@ export function HomePage() {
         ))}
         <button
           className="theme-toggle"
-          onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+          onClick={toggleTheme}
         >
           {theme === 'light' ? (
             <svg className="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.0 0 0012 21a9.003 9.0 0 008.354-5.646z" />
             </svg>
           ) : (
             <svg className="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -154,6 +192,27 @@ export function HomePage() {
           </svg>
           {language === 'es' ? 'ES' : 'EN'}
         </button>
+        {documents.length > 0 && (
+          <button
+            onClick={handleClearSystem}
+            disabled={loading}
+            style={{
+              background: loading ? '#9ca3af' : '#ef4444',
+              color: 'white',
+              border: 'none',
+              padding: '0.5rem 1rem',
+              borderRadius: '0.5rem',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+            }}
+          >
+            🗑 {language === 'es' ? 'Limpiar sistema' : 'Clear system'}
+          </button>
+        )}
       </nav>
 
       {view === 'chat' && (

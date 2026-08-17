@@ -5,12 +5,19 @@ import com.localrag.dto.response.DocumentoUploadResponse;
 import com.localrag.entity.Documento;
 import com.localrag.rag.RagDocumentService;
 import com.localrag.repository.DocumentoRepository;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.SimpleVectorStore;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -50,6 +57,10 @@ public class DocumentoService {
 
     public void deleteDocument(Long id) {
         ragDocumentService.deleteDocument(id);
+    }
+
+    public void deleteAllDocuments() {
+        ragDocumentService.deleteAllDocuments();
     }
 
     public boolean hasProcessedDocuments() {

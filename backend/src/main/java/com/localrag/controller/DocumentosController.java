@@ -4,6 +4,7 @@ import com.localrag.dto.request.DocumentRelationRequest;
 import com.localrag.dto.response.DocumentRelationResponse;
 import com.localrag.dto.response.DocumentoResponse;
 import com.localrag.dto.response.DocumentoUploadResponse;
+import com.localrag.exception.DocumentProcessingException;
 import com.localrag.service.DocumentoService;
 import com.localrag.service.DocumentRelationService;
 import jakarta.validation.constraints.NotNull;
@@ -15,6 +16,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -56,23 +61,39 @@ public class DocumentosController {
                 throw new IllegalArgumentException("Tipo de archivo no soportado: " + contentType + ". Solo se permiten PDF, TXT y Markdown.");
             }
 
-            File tempFile = File.createTempFile("upload-", file.getOriginalFilename());
-            file.transferTo(tempFile);
+            String originalName = file.getOriginalFilename();
+            Path uploadDir = getUploadDir();
+            Path target = uploadDir.resolve(originalName);
+            file.transferTo(target.toFile());
 
             try {
                 DocumentoUploadResponse response = documentoService.uploadDocument(
-                        tempFile,
-                        file.getOriginalFilename(),
+                        target.toFile(),
+                        originalName,
                         contentType,
                         file.getSize()
                 );
                 responses.add(response);
-            } finally {
-                tempFile.delete();
+            } catch (Exception e) {
+                Files.deleteIfExists(target);
+                throw e;
             }
         }
 
         return ResponseEntity.status(HttpStatus.CREATED).body(responses);
+    }
+
+    private Path getUploadDir() {
+        String userDir = System.getProperty("user.dir");
+        Path uploadDir = Paths.get(userDir, "uploads");
+        if (!Files.exists(uploadDir)) {
+            try {
+                Files.createDirectories(uploadDir);
+            } catch (IOException e) {
+                throw new DocumentProcessingException("No se pudo crear el directorio de uploads: " + uploadDir);
+            }
+        }
+        return uploadDir;
     }
 
     private boolean isSupportedContentType(String contentType) {
@@ -91,6 +112,12 @@ public class DocumentosController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteDocument(@PathVariable Long id) {
         documentoService.deleteDocument(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping
+    public ResponseEntity<Void> deleteAllDocuments() {
+        documentoService.deleteAllDocuments();
         return ResponseEntity.noContent().build();
     }
 
@@ -115,3 +142,4 @@ public class DocumentosController {
         return ResponseEntity.noContent().build();
     }
 }
+
