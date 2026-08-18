@@ -1,15 +1,30 @@
 package com.localrag.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 
 public class DocumentoResponse {
     private Long id;
+
+    @JsonProperty("fileName")
     private String nombreArchivo;
+
+    @JsonProperty("fileType")
     private String tipoArchivo;
+
+    @JsonProperty("fileSize")
     private Long tamanoBytes;
+
+    @JsonProperty("status")
     private String estado;
+
+    @JsonProperty("totalChunks")
     private Integer totalChunks;
+
+    @JsonProperty("createdAt")
     private LocalDateTime fechaCreacion;
+
+    @JsonProperty("updatedAt")
     private LocalDateTime fechaActualizacion;
 
     public DocumentoResponse() {
@@ -30,30 +45,37 @@ public class DocumentoResponse {
         return id;
     }
 
+    @JsonProperty("fileName")
     public String getNombreArchivo() {
         return nombreArchivo;
     }
 
+    @JsonProperty("fileType")
     public String getTipoArchivo() {
         return tipoArchivo;
     }
 
+    @JsonProperty("fileSize")
     public Long getTamanoBytes() {
         return tamanoBytes;
     }
 
+    @JsonProperty("status")
     public String getEstado() {
         return estado;
     }
 
+    @JsonProperty("totalChunks")
     public Integer getTotalChunks() {
         return totalChunks;
     }
 
+    @JsonProperty("createdAt")
     public LocalDateTime getFechaCreacion() {
         return fechaCreacion;
     }
 
+    @JsonProperty("updatedAt")
     public LocalDateTime getFechaActualizacion() {
         return fechaActualizacion;
     }

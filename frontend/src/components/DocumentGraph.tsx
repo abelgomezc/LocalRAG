@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { documentsApi, DocumentRelation } from '../api/documentsApi';
 import { useApp } from '../context/AppContext';
 
@@ -26,6 +26,9 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
   const [relations, setRelations] = useState<DocumentRelation[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
   const [dimensions, setDimensions] = useState({ width: 600, height: 400 });
+  const [selectedSource, setSelectedSource] = useState<number | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<number | null>(null);
+  const [pendingEdge, setPendingEdge] = useState<{ source: number; target: number } | null>(null);
   const { t } = useApp();
 
   useEffect(() => {
@@ -51,6 +54,24 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
     }
   };
 
+  const handleNodeClick = async (nodeId: number) => {
+    if (selectedSource === null) {
+      setSelectedSource(nodeId);
+    } else if (selectedSource !== nodeId) {
+      const description = prompt('Descripcion de la relacion (opcional):') || '';
+      try {
+        await documentsApi.createRelation(selectedSource, nodeId, description);
+        setPendingEdge({ source: selectedSource, target: nodeId });
+        await loadRelations();
+        setSelectedSource(null);
+      } catch {
+        alert('Error al crear la relacion');
+      }
+    } else {
+      setSelectedSource(null);
+    }
+  };
+
   const processedDocs = documents.filter((d) => d.status === 'PROCESSED');
   const nodes: Node[] = processedDocs.map((doc, index) => {
     const total = processedDocs.length;
@@ -73,7 +94,40 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
     description: rel.description,
   }));
 
+  if (pendingEdge) {
+    edges.push({
+      id: -1,
+      source: pendingEdge.source,
+      target: pendingEdge.target,
+      description: '',
+    });
+  }
+
   const getNodeById = (id: number) => nodes.find((n) => n.id === id);
+
+  const BookIcon = () => (
+    <g>
+      <path
+        d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path
+        d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="currentColor"
+        fillOpacity="0.2"
+      />
+      <line x1="8" y1="6" x2="16" y2="6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="8" y1="10" x2="16" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </g>
+  );
 
   return (
     <div className="document-graph">
@@ -94,7 +148,24 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
         padding: '1rem',
         marginBottom: '1rem',
         overflow: 'hidden',
+        position: 'relative',
       }}>
+        {selectedSource && (
+          <div style={{
+            position: 'absolute',
+            top: '0.5rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: '#2563eb',
+            color: 'white',
+            padding: '0.4rem 0.8rem',
+            borderRadius: '0.5rem',
+            fontSize: '0.8rem',
+            zIndex: 10,
+          }}>
+            Selecciona el documento destino
+          </div>
+        )}
         <svg
           ref={svgRef}
           width="100%"
@@ -158,40 +229,57 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
             );
           })}
 
-          {nodes.map((node) => (
-            <g key={node.id}>
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r="24"
-                fill="#2563eb"
-                stroke="white"
-                strokeWidth="3"
-                style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }}
-              />
-              <text
-                x={node.x}
-                y={node.y + 1}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fill="white"
-                fontSize="12"
-                fontWeight="bold"
+          {nodes.map((node) => {
+            const isSelected = selectedSource === node.id;
+            return (
+              <g
+                key={node.id}
+                onClick={() => handleNodeClick(node.id)}
+                onMouseEnter={() => setHoveredNode(node.id)}
+                onMouseLeave={() => setHoveredNode(null)}
+                style={{ cursor: 'pointer' }}
               >
-                {node.name.length > 8 ? node.name.slice(0, 6) + '..' : node.name}
-              </text>
-              <text
-                x={node.x}
-                y={node.y + 40}
-                textAnchor="middle"
-                fill="#374151"
-                fontSize="11"
-                fontWeight="500"
-              >
-                {node.name.length > 18 ? node.name.slice(0, 16) + '..' : node.name}
-              </text>
-            </g>
-          ))}
+                <g transform={`translate(${node.x}, ${node.y})`}>
+                  <g scale={isSelected ? 1.1 : 1} style={{ transformOrigin: 'center' }}>
+                    <BookIcon />
+                  </g>
+                  {isSelected && (
+                    <circle
+                      cx="0"
+                      cy="0"
+                      r="28"
+                      fill="none"
+                      stroke="#2563eb"
+                      strokeWidth="2"
+                      strokeDasharray="4 2"
+                    />
+                  )}
+                </g>
+                {hoveredNode === node.id && (
+                  <g>
+                    <rect
+                      x={node.x - 60}
+                      y={node.y + 45}
+                      width="120"
+                      height="24"
+                      rx="4"
+                      fill="#1f2937"
+                    />
+                    <text
+                      x={node.x}
+                      y={node.y + 60}
+                      textAnchor="middle"
+                      fill="white"
+                      fontSize="11"
+                      fontWeight="500"
+                    >
+                      {node.name}
+                    </text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
         </svg>
       </div>
 
