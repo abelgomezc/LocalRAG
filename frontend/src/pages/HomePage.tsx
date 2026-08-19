@@ -235,7 +235,7 @@ export function HomePage() {
 
       {view === 'relations' && (
         <div className="main-layout" style={{ gridTemplateColumns: '1fr' }}>
-          <DocumentGraph documents={documents} />
+          <DocumentGraph />
         </div>
       )}
 
@@ -245,3 +245,4 @@ export function HomePage() {
     </div>
   );
 }
+

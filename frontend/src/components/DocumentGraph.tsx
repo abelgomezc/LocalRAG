@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { documentsApi, DocumentRelation } from '../api/documentsApi';
 import { useApp } from '../context/AppContext';
 
@@ -22,34 +22,35 @@ interface Edge {
   description: string;
 }
 
-export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
+export function DocumentGraph() {
+  const [documents, setDocuments] = useState<SimpleDocument[]>([]);
   const [relations, setRelations] = useState<DocumentRelation[]>([]);
-  const svgRef = useRef<SVGSVGElement>(null);
   const [dimensions, setDimensions] = useState({ width: 600, height: 400 });
   const [selectedSource, setSelectedSource] = useState<number | null>(null);
   const [hoveredNode, setHoveredNode] = useState<number | null>(null);
-  const [pendingEdge, setPendingEdge] = useState<{ source: number; target: number } | null>(null);
   const { t } = useApp();
 
   useEffect(() => {
-    loadRelations();
-    updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
+    loadData();
+    const onResize = () => {
+      const w = Math.min(window.innerWidth - 100, 800);
+      setDimensions({ width: w, height: 420 });
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const updateDimensions = () => {
-    if (svgRef.current) {
-      const rect = svgRef.current.getBoundingClientRect();
-      setDimensions({ width: rect.width || 600, height: 400 });
-    }
-  };
-
-  const loadRelations = async () => {
+  const loadData = async () => {
     try {
-      const data = await documentsApi.listRelations();
-      setRelations(data);
+      const [docs, rels] = await Promise.all([
+        documentsApi.list(),
+        documentsApi.listRelations(),
+      ]);
+      setDocuments(docs);
+      setRelations(rels);
     } catch {
+      setDocuments([]);
       setRelations([]);
     }
   };
@@ -58,14 +59,13 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
     if (selectedSource === null) {
       setSelectedSource(nodeId);
     } else if (selectedSource !== nodeId) {
-      const description = prompt('Descripcion de la relacion (opcional):') || '';
+      const description = window.prompt('Descripcion de la relacion (opcional):') || '';
       try {
         await documentsApi.createRelation(selectedSource, nodeId, description);
-        setPendingEdge({ source: selectedSource, target: nodeId });
-        await loadRelations();
+        await loadData();
         setSelectedSource(null);
       } catch {
-        alert('Error al crear la relacion');
+        window.alert('Error al crear la relacion');
       }
     } else {
       setSelectedSource(null);
@@ -77,7 +77,7 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
     const total = processedDocs.length;
     const centerX = dimensions.width / 2;
     const centerY = dimensions.height / 2;
-    const radius = Math.min(dimensions.width, dimensions.height) * 0.35;
+    const radius = Math.min(dimensions.width, dimensions.height) * 0.32;
     const angle = total === 1 ? 0 : (2 * Math.PI * index) / total - Math.PI / 2;
     return {
       id: doc.id,
@@ -94,40 +94,7 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
     description: rel.description,
   }));
 
-  if (pendingEdge) {
-    edges.push({
-      id: -1,
-      source: pendingEdge.source,
-      target: pendingEdge.target,
-      description: '',
-    });
-  }
-
   const getNodeById = (id: number) => nodes.find((n) => n.id === id);
-
-  const BookIcon = () => (
-    <g>
-      <path
-        d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <path
-        d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.2"
-      />
-      <line x1="8" y1="6" x2="16" y2="6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="8" y1="10" x2="16" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </g>
-  );
 
   return (
     <div className="document-graph">
@@ -141,6 +108,20 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
         {t('graphDescription')}
       </p>
 
+      {selectedSource && (
+        <div style={{
+          background: '#2563eb',
+          color: 'white',
+          padding: '0.5rem 1rem',
+          borderRadius: '0.5rem',
+          fontSize: '0.85rem',
+          marginBottom: '0.75rem',
+          textAlign: 'center',
+        }}>
+          Haz clic en el libro destino para crear la relacion
+        </div>
+      )}
+
       <div style={{
         background: '#f8fafc',
         borderRadius: '0.75rem',
@@ -150,31 +131,14 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
         overflow: 'hidden',
         position: 'relative',
       }}>
-        {selectedSource && (
-          <div style={{
-            position: 'absolute',
-            top: '0.5rem',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: '#2563eb',
-            color: 'white',
-            padding: '0.4rem 0.8rem',
-            borderRadius: '0.5rem',
-            fontSize: '0.8rem',
-            zIndex: 10,
-          }}>
-            Selecciona el documento destino
-          </div>
-        )}
         <svg
-          ref={svgRef}
           width="100%"
           height={dimensions.height}
           viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
           style={{ display: 'block' }}
         >
           <defs>
-            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="28" refY="3.5" orient="auto">
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto">
               <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb" />
             </marker>
           </defs>
@@ -186,14 +150,14 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
 
             const dx = targetNode.x - sourceNode.x;
             const dy = targetNode.y - sourceNode.y;
-            const length = Math.sqrt(dx * dx + dy * dy);
+            const length = Math.sqrt(dx * dx + dy * dy) || 1;
             const unitX = dx / length;
             const unitY = dy / length;
 
-            const startX = sourceNode.x + 25 * unitX;
-            const startY = sourceNode.y + 25 * unitY;
-            const endX = targetNode.x - 30 * unitX;
-            const endY = targetNode.y - 30 * unitY;
+            const startX = sourceNode.x + 22 * unitX;
+            const startY = sourceNode.y + 22 * unitY;
+            const endX = targetNode.x - 28 * unitX;
+            const endY = targetNode.y - 28 * unitY;
 
             const midX = (startX + endX) / 2;
             const midY = (startY + endY) / 2;
@@ -206,10 +170,10 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
                   x2={endX}
                   y2={endY}
                   stroke="#2563eb"
-                  strokeWidth="2"
+                  strokeWidth="2.5"
                   markerEnd="url(#arrowhead)"
                 />
-                <foreignObject x={midX - 40} y={midY - 12} width="80" height="24">
+                <foreignObject x={midX - 50} y={midY - 12} width="100" height="24">
                   <div style={{
                     fontSize: '0.7rem',
                     color: '#4b5563',
@@ -240,40 +204,52 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
                 style={{ cursor: 'pointer' }}
               >
                 <g transform={`translate(${node.x}, ${node.y})`}>
-                  <g scale={isSelected ? 1.1 : 1} style={{ transformOrigin: 'center' }}>
-                    <BookIcon />
-                  </g>
                   {isSelected && (
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r="28"
-                      fill="none"
-                      stroke="#2563eb"
-                      strokeWidth="2"
-                      strokeDasharray="4 2"
-                    />
+                    <circle cx="0" cy="0" r="30" fill="none" stroke="#2563eb" strokeWidth="2" strokeDasharray="4 2" />
                   )}
+                  <g transform="scale(1.6)" style={{ color: isSelected ? '#2563eb' : '#3b82f6' }}>
+                    <path
+                      d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      fill="none"
+                    />
+                    <path
+                      d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      fill="currentColor"
+                      fillOpacity="0.15"
+                    />
+                    <line x1="8" y1="6" x2="17" y2="6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    <line x1="8" y1="10" x2="17" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    <line x1="8" y1="14" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </g>
                 </g>
+
                 {hoveredNode === node.id && (
                   <g>
                     <rect
-                      x={node.x - 60}
-                      y={node.y + 45}
-                      width="120"
+                      x={node.x - 70}
+                      y={node.y + 32}
+                      width="140"
                       height="24"
                       rx="4"
                       fill="#1f2937"
                     />
                     <text
                       x={node.x}
-                      y={node.y + 60}
+                      y={node.y + 48}
                       textAnchor="middle"
                       fill="white"
                       fontSize="11"
                       fontWeight="500"
                     >
-                      {node.name}
+                      {node.name.length > 22 ? node.name.slice(0, 20) + '..' : node.name}
                     </text>
                   </g>
                 )}
@@ -291,3 +267,4 @@ export function DocumentGraph({ documents }: { documents: SimpleDocument[] }) {
     </div>
   );
 }
+
