@@ -2,9 +2,11 @@ package com.localrag.rag;
 
 import com.localrag.dto.response.ChatResponse;
 import com.localrag.dto.response.ChatResponse.Source;
+import com.localrag.entity.DocumentoChunk;
 import com.localrag.entity.DocumentRelation;
 import com.localrag.exception.OllamaConnectionException;
 import com.localrag.exception.RagException;
+import com.localrag.repository.DocumentoChunkRepository;
 import com.localrag.service.DocumentRelationService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
@@ -14,8 +16,7 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -28,19 +29,24 @@ public class RagQueryService {
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
     private final DocumentRelationService relationService;
+    private final DocumentoChunkRepository chunkRepository;
 
     @Value("${rag.top-k:5}")
     private int topK;
 
-    public RagQueryService(ChatClient.Builder chatClientBuilder, VectorStore vectorStore, DocumentRelationService relationService) {
+    public RagQueryService(ChatClient.Builder chatClientBuilder, VectorStore vectorStore, DocumentRelationService relationService, DocumentoChunkRepository chunkRepository) {
         this.chatClient = chatClientBuilder.build();
         this.vectorStore = vectorStore;
         this.relationService = relationService;
+        this.chunkRepository = chunkRepository;
     }
 
     public ChatResponse ask(String question, String language) {
         try {
-            List<Document> relevantDocs = vectorStore.similaritySearch(question);
+            String normalizedQuery = rewriteQuery(question);
+            log.debug("[QUERY] Original: '{}' -> Normalizada: '{}'", question, normalizedQuery);
+
+            List<Document> relevantDocs = hybridSearch(normalizedQuery, topK);
             if (relevantDocs.size() > topK) {
                 relevantDocs = relevantDocs.stream().limit(topK).collect(Collectors.toList());
             }
@@ -64,6 +70,84 @@ public class RagQueryService {
             log.error("[CHAT] Error en consulta: {}", e.getMessage());
             throw new OllamaConnectionException("Error al consultar Ollama: " + e.getMessage());
         }
+    }
+
+    private String rewriteQuery(String question) {
+        String prompt = String.format("""
+                Reformula la siguiente consulta para optimizar la busqueda en documentos.
+                Reglas:
+                1. Corrige errores de ortografia y gramatica.
+                2. Expande con sinonimos relevantes del dominio.
+                3. Normaliza terminos tecnicos.
+                4. Manten el idioma original.
+                5. Devuelve SOLO la consulta reformulada, sin comillas, sin prefijos, sin explicaciones.
+                
+                Consulta original: %s
+                """, question);
+
+        try {
+            String rewritten = chatClient.prompt()
+                    .user(prompt)
+                    .call()
+                    .content()
+                    .trim();
+            if (rewritten.isBlank() || rewritten.equalsIgnoreCase(question)) {
+                return question;
+            }
+            return rewritten;
+        } catch (Exception e) {
+            log.warn("[QUERY REWRITE] Error al reescribir consulta, usando original: {}", e.getMessage());
+            return question;
+        }
+    }
+
+    private List<Document> hybridSearch(String normalizedQuery, int limit) {
+        List<Document> vectorResults = new ArrayList<>(vectorStore.similaritySearch(normalizedQuery));
+        List<DocumentoChunk> fullTextResults = chunkRepository.searchFullText(normalizedQuery, limit * 2);
+
+        Map<String, ScoredDocument> combined = new LinkedHashMap<>();
+
+        for (int i = 0; i < vectorResults.size(); i++) {
+            Document doc = vectorResults.get(i);
+            String key = getDocumentKey(doc);
+            combined.put(key, new ScoredDocument(doc, 1.0 - (i / (double) Math.max(vectorResults.size(), 1)), "vector"));
+        }
+
+        for (int i = 0; i < fullTextResults.size(); i++) {
+            DocumentoChunk chunk = fullTextResults.get(i);
+            String key = chunk.getDocumentoId() + "_" + chunk.getChunkNumero();
+            Document doc = toDocument(chunk);
+            double score = 1.0 - (i / (double) Math.max(fullTextResults.size(), 1));
+            combined.merge(key, new ScoredDocument(doc, score, "fulltext"), (existing, incoming) -> {
+                existing.score = Math.max(existing.score, incoming.score);
+                existing.source = "hybrid";
+                return existing;
+            });
+        }
+
+        return combined.values().stream()
+                .sorted(Comparator.comparingDouble((ScoredDocument sd) -> sd.score).reversed())
+                .limit(limit)
+                .map(sd -> sd.document)
+                .collect(Collectors.toList());
+    }
+
+    private String getDocumentKey(Document doc) {
+        Map<String, Object> metadata = doc.getMetadata();
+        String fileName = metadata != null ? (String) metadata.get("fileName") : "unknown";
+        Object chunkNumber = metadata != null ? metadata.get("chunkNumber") : null;
+        return fileName + "_" + (chunkNumber != null ? chunkNumber : "0");
+    }
+
+    private Document toDocument(DocumentoChunk chunk) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("fileName", chunk.getDocumentoId());
+        metadata.put("chunkNumber", chunk.getChunkNumero());
+        metadata.put("fileType", "unknown");
+        return Document.builder()
+                .text(chunk.getContenido())
+                .metadata(metadata)
+                .build();
     }
 
     private String buildContext(List<Document> documents) {
@@ -131,5 +215,17 @@ public class RagQueryService {
                     return new Source(fileName, page, chunk);
                 })
                 .collect(Collectors.toList());
+    }
+
+    private static class ScoredDocument {
+        Document document;
+        double score;
+        String source;
+
+        ScoredDocument(Document document, double score, String source) {
+            this.document = document;
+            this.score = score;
+            this.source = source;
+        }
     }
 }

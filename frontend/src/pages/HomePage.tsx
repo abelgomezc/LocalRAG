@@ -3,6 +3,7 @@ import { DocumentUpload } from '../components/DocumentUpload';
 import { DocumentList } from '../components/DocumentList';
 import { DocumentGraph } from '../components/DocumentGraph';
 import { ChatWindow } from '../components/ChatWindow';
+import { DocumentViewer } from '../components/DocumentViewer';
 import { documentsApi } from '../api/documentsApi';
 import { chatApi } from '../api/chatApi';
 import { ChatSource } from '../types/chat.types';
@@ -16,7 +17,8 @@ export function HomePage() {
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string; sources?: ChatSource[] }[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasDocuments, setHasDocuments] = useState(false);
-  const [documents, setDocuments] = useState<{ id: number; fileName: string; status: string }[]>([]);
+  const [documents, setDocuments] = useState<{ id: number; fileName: string; status: string; fileType?: string }[]>([]);
+  const [selectedDocument, setSelectedDocument] = useState<{ fileName: string; fileType: string } | null>(null);
   const [health, setHealth] = useState<{ application: string; ollama: string; database: string } | null>(null);
 
   useEffect(() => {
@@ -47,10 +49,14 @@ export function HomePage() {
     }
   };
 
+  const handleSelectDocument = (fileName: string, fileType: string) => {
+    setSelectedDocument({ fileName, fileType });
+  };
+
   const checkDocuments = async () => {
     try {
       const docs = await documentsApi.list();
-      setDocuments(docs.map((d) => ({ id: d.id, fileName: d.fileName, status: d.status })));
+      setDocuments(docs.map((d) => ({ id: d.id, fileName: d.fileName, status: d.status, fileType: d.fileType })));
       setHasDocuments(docs.some((d) => d.status === 'PROCESSED'));
     } catch {
       setHasDocuments(false);
@@ -216,20 +222,56 @@ export function HomePage() {
       </nav>
 
       {view === 'chat' && (
-        <main className="chat-area">
-          <ChatWindow
-            messages={messages}
-            loading={loading}
-            onSend={handleSend}
-            disabled={!hasDocuments}
-          />
-        </main>
+        <div className="main-layout" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <ChatWindow
+              messages={messages}
+              loading={loading}
+              onSend={handleSend}
+              disabled={!hasDocuments}
+            />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid #e5e7eb' }}>
+            <div style={{ padding: '0.75rem', borderBottom: '1px solid #e5e7eb' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '0.4rem' }}>
+                Documento
+              </label>
+              <select
+                value={selectedDocument?.fileName || ''}
+                onChange={(e) => {
+                  const doc = documents.find((d) => d.fileName === e.target.value);
+                  if (doc) setSelectedDocument({ fileName: doc.fileName, fileType: doc.fileType || 'application/pdf' });
+                }}
+                style={{ width: '100%', padding: '0.4rem', borderRadius: '0.375rem', border: '1px solid #d1d5db' }}
+              >
+                <option value="">Selecciona un documento</option>
+                {documents.map((doc) => (
+                  <option key={doc.id} value={doc.fileName}>{doc.fileName}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              {selectedDocument ? (
+                <DocumentViewer fileName={selectedDocument.fileName} fileType={selectedDocument.fileType} />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', fontSize: '0.9rem' }}>
+                  Selecciona un documento para visualizarlo
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {view === 'documents' && (
         <div className="main-layout" style={{ gridTemplateColumns: '1fr' }}>
           <DocumentUpload onUploaded={checkDocuments} />
-          <DocumentList onDeleted={checkDocuments} />
+          <DocumentList onDeleted={checkDocuments} onSelectDocument={handleSelectDocument} />
+          {selectedDocument && (
+            <div style={{ marginTop: '1rem' }}>
+              <DocumentViewer fileName={selectedDocument.fileName} fileType={selectedDocument.fileType} />
+            </div>
+          )}
         </div>
       )}
 

@@ -1,9 +1,11 @@
 package com.localrag.rag;
 
 import com.localrag.entity.Documento;
+import com.localrag.entity.DocumentoChunk;
 import com.localrag.exception.DocumentProcessingException;
 import com.localrag.exception.DocumentNotFoundException;
 import com.localrag.repository.DocumentoRepository;
+import com.localrag.repository.DocumentoChunkRepository;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.pdf.PagePdfDocumentReader;
 import org.springframework.ai.transformer.splitter.TextSplitter;
@@ -27,6 +29,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 public class RagDocumentService {
@@ -36,6 +40,7 @@ public class RagDocumentService {
     private final DocumentoRepository documentoRepository;
     private final VectorStore vectorStore;
     private final TextSplitter textSplitter;
+    private final DocumentoChunkRepository chunkRepository;
 
     @Value("${rag.chunk-size:1000}")
     private int chunkSize;
@@ -43,10 +48,11 @@ public class RagDocumentService {
     @Value("${rag.top-k:5}")
     private int topK;
 
-    public RagDocumentService(DocumentoRepository documentoRepository, VectorStore vectorStore, TextSplitter textSplitter) {
+    public RagDocumentService(DocumentoRepository documentoRepository, VectorStore vectorStore, TextSplitter textSplitter, DocumentoChunkRepository chunkRepository) {
         this.documentoRepository = documentoRepository;
         this.vectorStore = vectorStore;
         this.textSplitter = textSplitter;
+        this.chunkRepository = chunkRepository;
     }
 
     public void processAndStore(File file, String fileName, String fileType, long fileSize) {
@@ -54,7 +60,25 @@ public class RagDocumentService {
             List<Document> documents = readDocuments(file, fileType);
             List<Document> chunks = splitDocuments(documents);
             addMetadata(chunks, fileName, fileType);
+            cleanChunks(chunks);
             vectorStore.add(chunks);
+
+            List<DocumentoChunk> chunkEntities = chunks.stream()
+                    .map(chunk -> {
+                        DocumentoChunk entity = new DocumentoChunk();
+                        entity.setDocumentoId(fileName);
+                        entity.setChunkNumero((Integer) chunk.getMetadata().get("chunkNumber"));
+                        entity.setContenido(chunk.getText());
+                        Map<String, Object> metadata = new HashMap<>(chunk.getMetadata());
+                        try {
+                            entity.setMetadatos(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(metadata));
+                        } catch (Exception e) {
+                            entity.setMetadatos("{}");
+                        }
+                        return entity;
+                    })
+                    .collect(Collectors.toList());
+            chunkRepository.saveAll(chunkEntities);
 
             Documento existing = documentoRepository.findByNombreArchivo(fileName).orElse(null);
             if (existing != null) {
@@ -85,6 +109,7 @@ public class RagDocumentService {
             String fileName = documento.getNombreArchivo();
 
             documentoRepository.delete(documento);
+            chunkRepository.deleteByDocumentoId(fileName);
 
             try {
                 Path uploadDir = getUploadDir();
@@ -176,6 +201,24 @@ public class RagDocumentService {
             metadata.put("documentId", fileName);
             chunk.getMetadata().clear();
             chunk.getMetadata().putAll(metadata);
+        }
+    }
+
+    private void cleanChunks(List<Document> chunks) {
+        for (int i = 0; i < chunks.size(); i++) {
+            Document chunk = chunks.get(i);
+            String text = chunk.getText();
+            if (text != null) {
+                text = text.replaceAll("(?i)image\\d*\\.(png|jpg|jpeg|gif|bmp|webp)", "")
+                           .replaceAll("(?i)\\.\\.?/images?/", "")
+                           .replaceAll("\\s+", " ")
+                           .trim();
+                Document cleaned = Document.builder()
+                        .text(text)
+                        .metadata(chunk.getMetadata())
+                        .build();
+                chunks.set(i, cleaned);
+            }
         }
     }
 

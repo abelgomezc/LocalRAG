@@ -407,3 +407,56 @@ footer {
 [data-theme='dark'] .loading {
   color: #9ca3af;
 }
+
+.document-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.viewer-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.viewer-body {
+  flex: 1;
+  overflow: hidden;
+  background: #f9fafb;
+}
+
+.viewer-body pre {
+  height: 100%;
+  overflow: auto;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.viewer-body iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+[data-theme='dark'] .viewer-header {
+  background: rgba(31, 41, 55, 0.85);
+  border-bottom: 1px solid #4b5563;
+  color: #f3f4f6;
+}
+
+[data-theme='dark'] .viewer-body {
+  background: #111827;
+}
+
+[data-theme='dark'] .viewer-body pre {
+  color: #e5e7eb;
+}
