@@ -25,11 +25,14 @@ import java.util.stream.Collectors;
 public class RagQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(RagQueryService.class);
+    private static final int MAX_HISTORY_TURNS = 6;
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
     private final DocumentRelationService relationService;
     private final DocumentoChunkRepository chunkRepository;
+
+    private final Map<String, Deque<String>> conversationHistory = new LinkedHashMap<>();
 
     @Value("${rag.top-k:5}")
     private int topK;
@@ -41,8 +44,11 @@ public class RagQueryService {
         this.chunkRepository = chunkRepository;
     }
 
-    public ChatResponse ask(String question, String language) {
+    public ChatResponse ask(String question, String language, String conversationId) {
+        String convId = conversationId != null && !conversationId.isBlank() ? conversationId : UUID.randomUUID().toString();
         try {
+            Deque<String> history = conversationHistory.computeIfAbsent(convId, k -> new ArrayDeque<>());
+
             String normalizedQuery = rewriteQuery(question);
             log.debug("[QUERY] Original: '{}' -> Normalizada: '{}'", question, normalizedQuery);
 
@@ -52,16 +58,23 @@ public class RagQueryService {
             }
 
             String context = buildContext(relevantDocs);
-            String relationsContext = buildRelationsContext();
+            String relationsContext = buildRelationsContext(relevantDocs);
+            String historyContext = buildHistoryContext(history);
 
             String answer;
             try {
                 answer = CompletableFuture.supplyAsync(() ->
-                        generateAnswer(question, context, relationsContext, language)
+                        generateAnswer(question, context, relationsContext, historyContext, language)
                 ).get(120, TimeUnit.SECONDS);
             } catch (java.util.concurrent.TimeoutException e) {
                 log.error("[CHAT] Timeout al generar respuesta para: {}", question);
                 throw new OllamaConnectionException("El modelo tardo demasiado en responder. Intenta nuevamente.");
+            }
+
+            history.addLast("Usuario: " + question);
+            history.addLast("Asistente: " + answer);
+            while (history.size() > MAX_HISTORY_TURNS * 2) {
+                history.removeFirst();
             }
 
             List<Source> sources = buildSources(relevantDocs);
@@ -158,14 +171,38 @@ public class RagQueryService {
         return sb.toString();
     }
 
-    private String buildRelationsContext() {
+    private String buildRelationsContext(List<Document> relevantDocs) {
         List<DocumentRelation> relations = relationService.listAllRelations();
         if (relations.isEmpty()) {
             return "";
         }
+
+        Set<Long> relevantDocIds = relevantDocs.stream()
+                .map(doc -> doc.getMetadata() != null ? doc.getMetadata().get("fileName") : null)
+                .filter(Objects::nonNull)
+                .map(Object::toString)
+                .filter(name -> !name.equals("unknown"))
+                .map(name -> {
+                    try {
+                        return Long.parseLong(name);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        List<DocumentRelation> filtered = relations.stream()
+                .filter(r -> relevantDocIds.contains(r.getSourceDocumentId()) || relevantDocIds.contains(r.getTargetDocumentId()))
+                .collect(Collectors.toList());
+
+        if (filtered.isEmpty()) {
+            return "";
+        }
+
         StringBuilder sb = new StringBuilder();
         sb.append("RELACIONES ENTRE DOCUMENTOS:\n");
-        for (DocumentRelation relation : relations) {
+        for (DocumentRelation relation : filtered) {
             sb.append(String.format("- Documento %d se relaciona con Documento %d: %s\n",
                     relation.getSourceDocumentId(),
                     relation.getTargetDocumentId(),
@@ -174,10 +211,27 @@ public class RagQueryService {
         return sb.toString();
     }
 
-    private String generateAnswer(String question, String context, String relationsContext, String language) {
+    private String buildHistoryContext(Deque<String> history) {
+        if (history == null || history.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("HISTORIAL DE CONVERSACION:\n");
+        int count = 0;
+        for (String turn : history) {
+            sb.append(turn).append("\n");
+            count++;
+            if (count >= MAX_HISTORY_TURNS) break;
+        }
+        return sb.toString();
+    }
+
+    private String generateAnswer(String question, String context, String relationsContext, String historyContext, String language) {
         String lang = language != null && !language.isBlank() ? language : "es";
         String prompt = String.format("""
                 Eres un asistente especializado en responder preguntas utilizando exclusivamente el contexto recuperado de los documentos.
+
+                %s
 
                 %s
 
@@ -193,7 +247,9 @@ public class RagQueryService {
                 - No inventes informacion.
                 - Si el contexto no contiene suficiente informacion, dilo claramente.
                 - Responde de forma clara y concisa.
-                """, relationsContext.isEmpty() ? "" : relationsContext + "\n", context, question, lang);
+                - Cuando la respuesta involucre varios documentos, indica explicitamente cuales documentos se estan cruzando.
+                - Si hay RELACIONES ENTRE DOCUMENTOS, usalas para enriquecer la respuesta cuando la pregunta cruce temas de multiples documentos.
+                """, historyContext.isEmpty() ? "" : historyContext + "\n", relationsContext.isEmpty() ? "" : relationsContext + "\n", context, question, lang);
 
         return chatClient.prompt()
                 .user(prompt)

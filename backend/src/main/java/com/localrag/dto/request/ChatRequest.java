@@ -10,6 +10,8 @@ public class ChatRequest {
 
     private String language;
 
+    private String conversationId;
+
     public ChatRequest() {
     }
 
@@ -32,5 +34,13 @@ public class ChatRequest {
 
     public void setLanguage(String language) {
         this.language = language;
+    }
+
+    public String getConversationId() {
+        return conversationId;
+    }
+
+    public void setConversationId(String conversationId) {
+        this.conversationId = conversationId;
     }
 }

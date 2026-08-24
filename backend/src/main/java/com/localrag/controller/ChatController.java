@@ -29,7 +29,8 @@ public class ChatController {
             language = "es";
         }
 
-        ChatResponse response = ragQueryService.ask(question, language);
+        String conversationId = request.getConversationId();
+        ChatResponse response = ragQueryService.ask(question, language, conversationId);
         return ResponseEntity.ok(response);
     }
 }

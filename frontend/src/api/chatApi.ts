@@ -7,9 +7,9 @@ const api = axios.create({
 });
 
 export const chatApi = {
-  ask: async (question: string, language?: string): Promise<ChatResponse> => {
+  ask: async (question: string, language?: string, conversationId?: string): Promise<ChatResponse> => {
     try {
-      const response = await api.post('/chat', { question, language });
+      const response = await api.post('/chat', { question, language, conversationId });
       return response.data;
     } catch (error: any) {
       if (axios.isAxiosError(error)) {

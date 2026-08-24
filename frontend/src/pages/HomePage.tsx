@@ -20,6 +20,7 @@ export function HomePage() {
   const [documents, setDocuments] = useState<{ id: number; fileName: string; status: string; fileType?: string }[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<{ fileName: string; fileType: string } | null>(null);
   const [health, setHealth] = useState<{ application: string; ollama: string; database: string } | null>(null);
+  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -69,7 +70,7 @@ export function HomePage() {
     setLoading(true);
 
     try {
-      const response = await chatApi.ask(question, language);
+      const response = await chatApi.ask(question, language, conversationId);
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', text: response.answer, sources: response.sources },
@@ -219,6 +220,25 @@ export function HomePage() {
             🗑 {language === 'es' ? 'Limpiar sistema' : 'Clear system'}
           </button>
         )}
+        <button
+          onClick={() => { setConversationId(crypto.randomUUID()); setMessages([]); }}
+          disabled={loading}
+          style={{
+            background: loading ? '#9ca3af' : '#6b7280',
+            color: 'white',
+            border: 'none',
+            padding: '0.5rem 1rem',
+            borderRadius: '0.5rem',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+          }}
+        >
+          {language === 'es' ? 'Nueva conversacion' : 'New conversation'}
+        </button>
       </nav>
 
       {view === 'chat' && (
