@@ -4,7 +4,7 @@ Asistente de **Retrieval-Augmented Generation (RAG)** local para consultar múlti
 
 ## Estado actual
 
-Funcional y productivo. Incluye subida de documentos, búsqueda híbrida (vectorial + full-text), generación de respuestas con contexto recuperado, relaciones entre documentos, historial de conversación en memoria y visualización del grafo de documentos.
+Funcional y productivo. Incluye subida de documentos, búsqueda híbrida (vectorial + full-text), generación de respuestas con contexto recuperado, relaciones entre documentos, historial de conversación persistente en base de datos y visualización del grafo de documentos.
 
 ## Stack tecnológico
 
@@ -18,12 +18,12 @@ Funcional y productivo. Incluye subida de documentos, búsqueda híbrida (vectoria
 
 ## Características
 
-- Subida y procesamiento de documentos PDF, TXT y Markdown.
+- Subida y procesamiento de documentos PDF, TXT, Markdown, Word, Excel y CSV.
 - Chunking con `TokenTextSplitter` y embeddings con `bge-m3`.
 - Búsqueda híbrida: similitud vectorial + full-text search en PostgreSQL.
 - Respuestas generadas por LLM con contexto recuperado y citas de fuentes.
 - Relaciones entre documentos con visualización en grafo.
-- Historial de conversación en memoria por sesión.
+- Historial de conversación persistente en base de datos por sesión.
 - Health check de aplicación, Ollama y base de datos.
 
 ## Requisitos
@@ -125,10 +125,11 @@ Frontend: `http://localhost:5173`
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `POST` | `/api/documents/upload` | Sube y procesa documentos (PDF, TXT, MD). Máximo 5 archivos por request. |
+| `POST` | `/api/documents/upload` | Sube y procesa documentos (PDF, TXT, MD, DOCX, XLSX, CSV). Máximo 5 archivos por request. |
 | `GET` | `/api/documents` | Lista documentos procesados. |
-| `DELETE` | `/api/documents/{id}` | Elimina un documento y sus vectores. |
-| `DELETE` | `/api/documents` | Elimina todos los documentos. |
+| `GET` | `/api/documents/{id}/content` | Obtiene el contenido textual de un documento para visualizarlo. |
+| `DELETE` | `/api/documents/{id}` | Elimina un documento, sus vectores y el historial de chat asociado. |
+| `DELETE` | `/api/documents` | Elimina todos los documentos, vectores, relaciones y el historial de chat. |
 
 ### Relaciones entre documentos
 
@@ -251,6 +252,12 @@ documento_chunks
 
 document_relations
   id, source_document_id, target_document_id, description
+
+conversations
+  id, conversation_id (único), created_at, updated_at
+
+messages
+  id, conversation_id, role, content (TEXT), created_at
 ```
 
 ## Decisiones técnicas
@@ -260,22 +267,20 @@ document_relations
 - **PostgreSQL + tsvector**: Búsqueda full-text nativa para complementar la búsqueda vectorial.
 - **Ollama**: Ejecuta LLM y embeddings localmente sin dependencias externas.
 - **React + Vite**: Interfaz moderna sin dependencias innecesarias.
-- **Historial en memoria**: Por sesión (`conversationId`), sin persistencia. Ideal para prototipado.
+- **Historial persistente**: Las conversaciones se guardan en PostgreSQL y sobreviven a reinicios. Se limpian al eliminar todos los documentos.
 
 ## Limitaciones
 
 - No hay autenticación ni multi-tenancy.
 - No hay streaming de respuestas.
-- Historial de conversación en memoria, no persistente.
 - Máximo 5 documentos por instalación.
-- Solo PDF, TXT y Markdown.
+- Solo PDF, TXT, Markdown, Word, Excel y CSV.
 - Con `SimpleVectorStore`, los embeddings se pierden al reiniciar el backend.
 
 ## Posibles mejoras
 
 - Streaming de respuestas (Server-Sent Events).
-- Historial persistente en base de datos.
-- Soporte para más formatos (Word, Excel, CSV).
+- Soporte para más formatos (PDF escaneado con OCR, etc.).
 - Re-indexado automático al modificar documentos.
 - Métricas de calidad de retrieval.
 - Tests de integración con Testcontainers.

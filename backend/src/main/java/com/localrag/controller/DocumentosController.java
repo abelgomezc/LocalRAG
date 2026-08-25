@@ -101,12 +101,20 @@ public class DocumentosController {
                 || contentType.equalsIgnoreCase("text/plain")
                 || contentType.equalsIgnoreCase("text/markdown")
                 || contentType.equalsIgnoreCase("text/x-markdown")
-                || contentType.equalsIgnoreCase("text/md");
+                || contentType.equalsIgnoreCase("text/md")
+                || contentType.equalsIgnoreCase("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                || contentType.equalsIgnoreCase("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                || contentType.equalsIgnoreCase("text/csv");
     }
 
     @GetMapping
     public ResponseEntity<List<DocumentoResponse>> listDocuments() {
         return ResponseEntity.ok(documentoService.listDocuments());
+    }
+
+    @GetMapping("/{id}/content")
+    public ResponseEntity<String> getDocumentContent(@PathVariable Long id) {
+        return ResponseEntity.ok(documentoService.getDocumentContent(id));
     }
 
     @DeleteMapping("/{id}")

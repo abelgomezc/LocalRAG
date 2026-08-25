@@ -28,7 +28,7 @@ class ChatControllerTest {
     void chat_shouldReturnResponse() {
         ChatRequest request = new ChatRequest("What is Java?", "es");
         ChatResponse mockResponse = new ChatResponse("Java is a language.", List.of());
-        when(ragQueryService.ask("What is Java?", "es")).thenReturn(mockResponse);
+        when(ragQueryService.ask("What is Java?", "es", null)).thenReturn(mockResponse);
 
         var response = chatController.chat(request);
 

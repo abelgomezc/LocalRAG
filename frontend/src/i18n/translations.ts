@@ -2,7 +2,7 @@ export const translations = {
   es: {
     uploadTitle: 'Subir documentos',
     uploadText: 'Arrastra archivos aquí o haz clic para seleccionar',
-    uploadFormats: 'PDF, TXT o Markdown — máximo 5 documentos',
+    uploadFormats: 'PDF, TXT, Markdown, Word, Excel o CSV — máximo 5 documentos',
     processing: 'Procesando documentos...',
     documentsTitle: 'Documentos',
     noDocuments: 'No hay documentos cargados',
@@ -41,7 +41,7 @@ export const translations = {
   en: {
     uploadTitle: 'Upload documents',
     uploadText: 'Drag files here or click to select',
-    uploadFormats: 'PDF, TXT or Markdown — max 5 documents',
+    uploadFormats: 'PDF, TXT, Markdown, Word, Excel or CSV — max 5 documents',
     processing: 'Processing documents...',
     documentsTitle: 'Documents',
     noDocuments: 'No documents uploaded',

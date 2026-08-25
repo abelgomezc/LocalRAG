@@ -8,9 +8,12 @@ const ALLOWED_TYPES = [
   'text/markdown',
   'text/x-markdown',
   'text/md',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
 ];
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.txt', '.md', '.markdown'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.txt', '.md', '.markdown', '.docx', '.xlsx', '.csv'];
 
 export function DocumentUpload({ onUploaded }: { onUploaded: () => void }) {
   const [uploading, setUploading] = useState(false);
@@ -22,10 +25,10 @@ export function DocumentUpload({ onUploaded }: { onUploaded: () => void }) {
   const validateFile = (file: File): string | null => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      return `Tipo de archivo no soportado: ${ext}. Solo se permiten PDF, TXT y Markdown.`;
+      return `Tipo de archivo no soportado: ${ext}. Solo se permiten PDF, TXT, Markdown, Word, Excel y CSV.`;
     }
     if (!ALLOWED_TYPES.includes(file.type)) {
-      return `Tipo de archivo no soportado: ${file.type || 'desconocido'}. Solo se permiten PDF, TXT y Markdown.`;
+      return `Tipo de archivo no soportado: ${file.type || 'desconocido'}. Solo se permiten PDF, TXT, Markdown, Word, Excel y CSV.`;
     }
     if (file.size > 500 * 1024 * 1024) {
       return 'El archivo supera el tamaño máximo permitido de 500MB.';
@@ -131,7 +134,7 @@ export function DocumentUpload({ onUploaded }: { onUploaded: () => void }) {
         <input
           id="file-input"
           type="file"
-          accept=".pdf,.txt,.md,.markdown"
+          accept=".pdf,.txt,.md,.markdown,.docx,.xlsx,.csv"
           multiple
           onChange={handleFileChange}
           disabled={uploading}

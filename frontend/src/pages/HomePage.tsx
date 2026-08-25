@@ -18,7 +18,7 @@ export function HomePage() {
   const [loading, setLoading] = useState(false);
   const [hasDocuments, setHasDocuments] = useState(false);
   const [documents, setDocuments] = useState<{ id: number; fileName: string; status: string; fileType?: string }[]>([]);
-  const [selectedDocument, setSelectedDocument] = useState<{ fileName: string; fileType: string } | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<{ id?: number; fileName: string; fileType: string } | null>(null);
   const [health, setHealth] = useState<{ application: string; ollama: string; database: string } | null>(null);
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
 
@@ -50,8 +50,8 @@ export function HomePage() {
     }
   };
 
-  const handleSelectDocument = (fileName: string, fileType: string) => {
-    setSelectedDocument({ fileName, fileType });
+  const handleSelectDocument = (fileName: string, fileType: string, id: number) => {
+    setSelectedDocument({ id, fileName, fileType });
   };
 
   const checkDocuments = async () => {
@@ -260,7 +260,7 @@ export function HomePage() {
                 value={selectedDocument?.fileName || ''}
                 onChange={(e) => {
                   const doc = documents.find((d) => d.fileName === e.target.value);
-                  if (doc) setSelectedDocument({ fileName: doc.fileName, fileType: doc.fileType || 'application/pdf' });
+                  if (doc) setSelectedDocument({ id: doc.id, fileName: doc.fileName, fileType: doc.fileType || 'application/pdf' });
                 }}
                 style={{ width: '100%', padding: '0.4rem', borderRadius: '0.375rem', border: '1px solid #d1d5db' }}
               >
@@ -272,7 +272,7 @@ export function HomePage() {
             </div>
             <div style={{ flex: 1, overflow: 'hidden' }}>
               {selectedDocument ? (
-                <DocumentViewer fileName={selectedDocument.fileName} fileType={selectedDocument.fileType} />
+                <DocumentViewer fileName={selectedDocument.fileName} fileType={selectedDocument.fileType} documentId={selectedDocument.id} />
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', fontSize: '0.9rem' }}>
                   Selecciona un documento para visualizarlo
@@ -289,7 +289,7 @@ export function HomePage() {
           <DocumentList onDeleted={checkDocuments} onSelectDocument={handleSelectDocument} />
           {selectedDocument && (
             <div style={{ marginTop: '1rem' }}>
-              <DocumentViewer fileName={selectedDocument.fileName} fileType={selectedDocument.fileType} />
+              <DocumentViewer fileName={selectedDocument.fileName} fileType={selectedDocument.fileType} documentId={selectedDocument.id} />
             </div>
           )}
         </div>

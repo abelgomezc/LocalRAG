@@ -3,8 +3,12 @@ package com.localrag.service;
 import com.localrag.dto.response.DocumentoResponse;
 import com.localrag.dto.response.DocumentoUploadResponse;
 import com.localrag.entity.Documento;
+import com.localrag.entity.DocumentoChunk;
 import com.localrag.rag.RagDocumentService;
 import com.localrag.repository.DocumentoRepository;
+import com.localrag.repository.DocumentoChunkRepository;
+import com.localrag.repository.ConversationRepository;
+import com.localrag.repository.MessageRepository;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -27,10 +31,16 @@ public class DocumentoService {
 
     private final DocumentoRepository documentoRepository;
     private final RagDocumentService ragDocumentService;
+    private final DocumentoChunkRepository chunkRepository;
+    private final ConversationRepository conversationRepository;
+    private final MessageRepository messageRepository;
 
-    public DocumentoService(DocumentoRepository documentoRepository, RagDocumentService ragDocumentService) {
+    public DocumentoService(DocumentoRepository documentoRepository, RagDocumentService ragDocumentService, DocumentoChunkRepository chunkRepository, ConversationRepository conversationRepository, MessageRepository messageRepository) {
         this.documentoRepository = documentoRepository;
         this.ragDocumentService = ragDocumentService;
+        this.chunkRepository = chunkRepository;
+        this.conversationRepository = conversationRepository;
+        this.messageRepository = messageRepository;
     }
 
     public DocumentoUploadResponse uploadDocument(File file, String fileName, String contentType, long size) {
@@ -61,11 +71,22 @@ public class DocumentoService {
 
     public void deleteAllDocuments() {
         ragDocumentService.deleteAllDocuments();
+        messageRepository.deleteAll();
+        conversationRepository.deleteAll();
     }
 
     public boolean hasProcessedDocuments() {
         return documentoRepository.findAll().stream()
                 .anyMatch(d -> "PROCESSED".equals(d.getEstado()));
+    }
+
+    public String getDocumentContent(Long id) {
+        Documento documento = documentoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+        List<DocumentoChunk> chunks = chunkRepository.findByDocumentoIdOrderByChunkNumeroAsc(documento.getNombreArchivo());
+        return chunks.stream()
+                .map(DocumentoChunk::getContenido)
+                .collect(Collectors.joining("\n\n"));
     }
 
     private DocumentoResponse toResponse(Documento documento) {

@@ -10,6 +10,8 @@ import java.util.List;
 public interface DocumentoChunkRepository extends JpaRepository<DocumentoChunk, Long> {
     List<DocumentoChunk> findByDocumentoId(String documentoId);
 
+    List<DocumentoChunk> findByDocumentoIdOrderByChunkNumeroAsc(String documentoId);
+
     void deleteByDocumentoId(String documentoId);
 
     @Query(value = """

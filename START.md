@@ -68,7 +68,7 @@ Frontend: http://localhost:5173
 ## Verificar que todo funciona
 
 1. Abrir http://localhost:5173
-2. Subir un documento PDF, TXT o Markdown
+2. Subir un documento PDF, TXT, Markdown, Word, Excel o CSV
 3. Hacer una pregunta en el chat
 
 ## Solución de problemas

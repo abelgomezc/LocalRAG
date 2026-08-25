@@ -3,20 +3,28 @@ import { useEffect, useState } from 'react';
 export interface DocumentViewerProps {
   fileName: string;
   fileType: string;
+  documentId?: number;
 }
 
-export function DocumentViewer({ fileName, fileType }: DocumentViewerProps) {
+export function DocumentViewer({ fileName, fileType, documentId }: DocumentViewerProps) {
   const [textContent, setTextContent] = useState<string | null>(null);
   const fileUrl = `/uploads/${encodeURIComponent(fileName)}`;
-  const isText = fileType === 'text/plain' || fileType === 'text/markdown' || fileType === 'text/x-markdown' || fileType === 'text/md';
+  const isText = fileType === 'text/plain' || fileType === 'text/markdown' || fileType === 'text/x-markdown' || fileType === 'text/md'
+    || fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    || fileType === 'text/csv'
+    || fileName.toLowerCase().endsWith('.docx')
+    || fileName.toLowerCase().endsWith('.xlsx')
+    || fileName.toLowerCase().endsWith('.csv');
 
   useEffect(() => {
     if (!isText) return;
-    fetch(fileUrl)
+    const url = documentId ? `/api/documents/${documentId}/content` : fileUrl;
+    fetch(url)
       .then((res) => res.text())
       .then(setTextContent)
       .catch(() => setTextContent('No se pudo cargar el contenido del documento.'));
-  }, [fileUrl, isText]);
+  }, [fileUrl, isText, documentId]);
 
   if (isText) {
     return (

@@ -31,6 +31,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFTable;
+import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 
 @Service
 public class RagDocumentService {
@@ -171,9 +180,76 @@ public class RagDocumentService {
                     .metadata("source", file.getAbsolutePath())
                     .build();
             return List.of(doc);
+        } else if (fileType.equalsIgnoreCase("application/vnd.openxmlformats-officedocument.wordprocessingml.document") || file.getName().toLowerCase().endsWith(".docx")) {
+            return readDocx(file);
+        } else if (fileType.equalsIgnoreCase("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") || file.getName().toLowerCase().endsWith(".xlsx")) {
+            return readXlsx(file);
+        } else if (fileType.equalsIgnoreCase("text/csv") || file.getName().toLowerCase().endsWith(".csv")) {
+            return readCsv(file);
         } else {
             throw new DocumentProcessingException("Tipo de archivo no soportado: " + fileType);
         }
+    }
+
+    private List<Document> readDocx(File file) throws IOException {
+        try (XWPFDocument document = new XWPFDocument(Files.newInputStream(file.toPath()))) {
+            StringBuilder text = new StringBuilder();
+            for (XWPFParagraph paragraph : document.getParagraphs()) {
+                text.append(paragraph.getText()).append("\n");
+            }
+            for (XWPFTable table : document.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    for (XWPFTableCell cell : row.getTableCells()) {
+                        text.append(cell.getText()).append("\t");
+                    }
+                    text.append("\n");
+                }
+            }
+            Document doc = Document.builder()
+                    .text(text.toString())
+                    .metadata("source", file.getAbsolutePath())
+                    .build();
+            return List.of(doc);
+        }
+    }
+
+    private List<Document> readXlsx(File file) throws IOException {
+        try (XSSFWorkbook workbook = new XSSFWorkbook(Files.newInputStream(file.toPath()))) {
+            StringBuilder text = new StringBuilder();
+            for (Sheet sheet : workbook) {
+                for (Row row : sheet) {
+                    for (Cell cell : row) {
+                        text.append(getCellValue(cell)).append("\t");
+                    }
+                    text.append("\n");
+                }
+            }
+            Document doc = Document.builder()
+                    .text(text.toString())
+                    .metadata("source", file.getAbsolutePath())
+                    .build();
+            return List.of(doc);
+        }
+    }
+
+    private String getCellValue(Cell cell) {
+        if (cell == null) return "";
+        return switch (cell.getCellType()) {
+            case STRING -> cell.getStringCellValue();
+            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
+            case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
+            case FORMULA -> cell.getCellFormula();
+            default -> "";
+        };
+    }
+
+    private List<Document> readCsv(File file) throws IOException {
+        List<String> lines = Files.readAllLines(file.toPath());
+        Document doc = Document.builder()
+                .text(String.join("\n", lines))
+                .metadata("source", file.getAbsolutePath())
+                .build();
+        return List.of(doc);
     }
 
     private boolean isTextFile(String contentType) {

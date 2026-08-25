@@ -4,9 +4,13 @@ import com.localrag.dto.response.ChatResponse;
 import com.localrag.dto.response.ChatResponse.Source;
 import com.localrag.entity.DocumentoChunk;
 import com.localrag.entity.DocumentRelation;
+import com.localrag.entity.Conversation;
+import com.localrag.entity.Message;
 import com.localrag.exception.OllamaConnectionException;
 import com.localrag.exception.RagException;
+import com.localrag.repository.ConversationRepository;
 import com.localrag.repository.DocumentoChunkRepository;
+import com.localrag.repository.MessageRepository;
 import com.localrag.service.DocumentRelationService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
@@ -31,23 +35,37 @@ public class RagQueryService {
     private final VectorStore vectorStore;
     private final DocumentRelationService relationService;
     private final DocumentoChunkRepository chunkRepository;
-
-    private final Map<String, Deque<String>> conversationHistory = new LinkedHashMap<>();
+    private final ConversationRepository conversationRepository;
+    private final MessageRepository messageRepository;
 
     @Value("${rag.top-k:5}")
     private int topK;
 
-    public RagQueryService(ChatClient.Builder chatClientBuilder, VectorStore vectorStore, DocumentRelationService relationService, DocumentoChunkRepository chunkRepository) {
+    public RagQueryService(ChatClient.Builder chatClientBuilder, VectorStore vectorStore, DocumentRelationService relationService, DocumentoChunkRepository chunkRepository, ConversationRepository conversationRepository, MessageRepository messageRepository) {
         this.chatClient = chatClientBuilder.build();
         this.vectorStore = vectorStore;
         this.relationService = relationService;
         this.chunkRepository = chunkRepository;
+        this.conversationRepository = conversationRepository;
+        this.messageRepository = messageRepository;
     }
 
     public ChatResponse ask(String question, String language, String conversationId) {
         String convId = conversationId != null && !conversationId.isBlank() ? conversationId : UUID.randomUUID().toString();
         try {
-            Deque<String> history = conversationHistory.computeIfAbsent(convId, k -> new ArrayDeque<>());
+            Conversation conversation = conversationRepository.findByConversationId(convId)
+                    .orElseGet(() -> {
+                        Conversation c = new Conversation();
+                        c.setConversationId(convId);
+                        c.setCreatedAt(java.time.LocalDateTime.now());
+                        c.setUpdatedAt(java.time.LocalDateTime.now());
+                        return conversationRepository.save(c);
+                    });
+            conversation.setUpdatedAt(java.time.LocalDateTime.now());
+            conversationRepository.save(conversation);
+
+            List<Message> history = messageRepository.findByConversationIdOrderByCreatedAtAsc(convId);
+            String historyContext = buildHistoryContext(history);
 
             String normalizedQuery = rewriteQuery(question);
             log.debug("[QUERY] Original: '{}' -> Normalizada: '{}'", question, normalizedQuery);
@@ -59,7 +77,6 @@ public class RagQueryService {
 
             String context = buildContext(relevantDocs);
             String relationsContext = buildRelationsContext(relevantDocs);
-            String historyContext = buildHistoryContext(history);
 
             String answer;
             try {
@@ -71,11 +88,21 @@ public class RagQueryService {
                 throw new OllamaConnectionException("El modelo tardo demasiado en responder. Intenta nuevamente.");
             }
 
-            history.addLast("Usuario: " + question);
-            history.addLast("Asistente: " + answer);
-            while (history.size() > MAX_HISTORY_TURNS * 2) {
-                history.removeFirst();
-            }
+            Message userMessage = new Message();
+            userMessage.setConversationId(convId);
+            userMessage.setRole("user");
+            userMessage.setContent("Usuario: " + question);
+            userMessage.setCreatedAt(java.time.LocalDateTime.now());
+            messageRepository.save(userMessage);
+
+            Message assistantMessage = new Message();
+            assistantMessage.setConversationId(convId);
+            assistantMessage.setRole("assistant");
+            assistantMessage.setContent("Asistente: " + answer);
+            assistantMessage.setCreatedAt(java.time.LocalDateTime.now());
+            messageRepository.save(assistantMessage);
+
+            pruneOldMessages(convId);
 
             List<Source> sources = buildSources(relevantDocs);
             return new ChatResponse(answer, sources);
@@ -211,19 +238,29 @@ public class RagQueryService {
         return sb.toString();
     }
 
-    private String buildHistoryContext(Deque<String> history) {
+    private String buildHistoryContext(List<Message> history) {
         if (history == null || history.isEmpty()) {
             return "";
         }
         StringBuilder sb = new StringBuilder();
         sb.append("HISTORIAL DE CONVERSACION:\n");
         int count = 0;
-        for (String turn : history) {
-            sb.append(turn).append("\n");
+        int start = Math.max(0, history.size() - MAX_HISTORY_TURNS);
+        for (int i = start; i < history.size(); i++) {
+            sb.append(history.get(i).getContent()).append("\n");
             count++;
             if (count >= MAX_HISTORY_TURNS) break;
         }
         return sb.toString();
+    }
+
+    private void pruneOldMessages(String conversationId) {
+        List<Message> all = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
+        if (all.size() > MAX_HISTORY_TURNS * 2) {
+            List<Message> toDelete = all.subList(0, all.size() - MAX_HISTORY_TURNS * 2);
+            messageRepository.deleteAll(toDelete);
+            messageRepository.flush();
+        }
     }
 
     private String generateAnswer(String question, String context, String relationsContext, String historyContext, String language) {
