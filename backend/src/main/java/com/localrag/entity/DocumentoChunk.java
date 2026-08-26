@@ -20,7 +20,7 @@ public class DocumentoChunk {
     @Column(columnDefinition = "TEXT")
     private String contenido;
 
-    @Column(name = "metadatos", columnDefinition = "JSONB")
+    @Column(name = "metadatos", columnDefinition = "TEXT")
     private String metadatos;
 
     @Column(name = "fecha_creacion", nullable = false)

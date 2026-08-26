@@ -13,6 +13,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -26,6 +28,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/documents")
 public class DocumentosController {
+
+    private static final Logger log = LoggerFactory.getLogger(DocumentosController.class);
 
     private final DocumentoService documentoService;
     private final DocumentRelationService relationService;
@@ -57,11 +61,15 @@ public class DocumentosController {
             }
 
             String contentType = file.getContentType();
+            String originalName = file.getOriginalFilename();
             if (contentType == null || !isSupportedContentType(contentType)) {
-                throw new IllegalArgumentException("Tipo de archivo no soportado: " + contentType + ". Solo se permiten PDF, TXT y Markdown.");
+                String resolvedType = resolveFileType(contentType, originalName);
+                if (resolvedType == null || resolvedType.isBlank()) {
+                    throw new IllegalArgumentException("Tipo de archivo no soportado: " + contentType + ". Solo se permiten PDF, TXT, Markdown, Word, Excel y CSV.");
+                }
+                contentType = resolvedType;
             }
 
-            String originalName = file.getOriginalFilename();
             Path uploadDir = getUploadDir();
             Path target = uploadDir.resolve(originalName);
             file.transferTo(target.toFile());
@@ -76,7 +84,8 @@ public class DocumentosController {
                 responses.add(response);
             } catch (Exception e) {
                 Files.deleteIfExists(target);
-                throw e;
+                log.error("[UPLOAD] Error procesando {}: {}", originalName, e.getMessage(), e);
+                throw new DocumentProcessingException("No fue posible procesar el documento: " + e.getMessage());
             }
         }
 
@@ -97,6 +106,7 @@ public class DocumentosController {
     }
 
     private boolean isSupportedContentType(String contentType) {
+        if (contentType == null) return false;
         return contentType.equalsIgnoreCase("application/pdf")
                 || contentType.equalsIgnoreCase("text/plain")
                 || contentType.equalsIgnoreCase("text/markdown")
@@ -104,7 +114,22 @@ public class DocumentosController {
                 || contentType.equalsIgnoreCase("text/md")
                 || contentType.equalsIgnoreCase("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                 || contentType.equalsIgnoreCase("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                || contentType.equalsIgnoreCase("text/csv");
+                || contentType.equalsIgnoreCase("text/csv")
+                || contentType.equalsIgnoreCase("application/octet-stream");
+    }
+
+    private String resolveFileType(String contentType, String fileName) {
+        if (contentType != null && !contentType.equalsIgnoreCase("application/octet-stream") && !contentType.isBlank()) {
+            return contentType;
+        }
+        String name = fileName.toLowerCase();
+        if (name.endsWith(".pdf")) return "application/pdf";
+        if (name.endsWith(".txt")) return "text/plain";
+        if (name.endsWith(".md") || name.endsWith(".markdown")) return "text/markdown";
+        if (name.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (name.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (name.endsWith(".csv")) return "text/csv";
+        return contentType;
     }
 
     @GetMapping

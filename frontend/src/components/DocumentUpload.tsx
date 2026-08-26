@@ -27,8 +27,10 @@ export function DocumentUpload({ onUploaded }: { onUploaded: () => void }) {
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
       return `Tipo de archivo no soportado: ${ext}. Solo se permiten PDF, TXT, Markdown, Word, Excel y CSV.`;
     }
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      return `Tipo de archivo no soportado: ${file.type || 'desconocido'}. Solo se permiten PDF, TXT, Markdown, Word, Excel y CSV.`;
+    const type = file.type || '';
+    const typeOk = ALLOWED_TYPES.includes(type) || type === 'application/octet-stream';
+    if (!typeOk) {
+      return `Tipo de archivo no soportado: ${type || 'desconocido'}. Solo se permiten PDF, TXT, Markdown, Word, Excel y CSV.`;
     }
     if (file.size > 500 * 1024 * 1024) {
       return 'El archivo supera el tamaño máximo permitido de 500MB.';
