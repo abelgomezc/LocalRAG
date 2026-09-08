@@ -130,6 +130,40 @@ flowchart TD
     K -->|Si| L[Retornar respuesta + fuentes]
 ```
 
+### Como funciona la consulta (para quienes inician en RAG)
+
+El diagrama anterior puede ser dificil de leer si no conoces estos terminos. Aqui va una explicacion breve de cada capa y por que existe:
+
+1. **Pregunta + Reescritura**
+   - El usuario escribe una pregunta en lenguaje natural.
+   - Antes de buscar, el sistema la reescribe/mejora internamente para que la recuperacion sea mas precisa.
+
+2. **Busqueda hibrida**
+   - Busca en los documentos de dos formas al mismo tiempo:
+     - **Vector similarity**: compara la pregunta con los fragmentos almacenados usando embeddings (`bge-m3`).
+     - **Full-text search**: usa `ts_rank` de PostgreSQL para buscar coincidencias exactas de palabras clave en espanol.
+   - El resultado es una mezcla de ambas, por lo que gana en precision y en cobertura.
+
+3. **CRAG (Corrective RAG)**
+   - Si la busqueda fue buena, avanza directo a responder.
+   - Si la calidad es baja, no responde con lo primero que encuentra; mejor vuelve a buscar/corregir la consulta antes de continuar.
+   - En resumen: es un "filtro de confianza" para evitar respuestas inventadas.
+
+4. **Generacion con Self-RAG**
+   - El LLM no genera la respuesta en una sola pasada ciega.
+   - Se le pide que se auto-reflexione sobre si el contexto recuperado realmente sirve.
+   - En la practica esto ayuda a evitar respuestas fuera de contexto o contradictorias.
+
+5. **Agentic RAG**
+   - Es la capa mas alta de decision.
+   - Evalua si la respuesta generada es lo bastante buena.
+   - Si no lo es, puede iterar: volver a reescribir la pregunta, buscar de nuevo o cambiar de estrategia.
+   - Es lo que convierte el flujo en "inteligente" en vez de solo "automatico".
+
+6. **Respuesta final + fuentes**
+   - Solo despues de pasar las validaciones anteriores se devuelve la respuesta.
+   - Se incluyen las fuentes exactas para que el usuario pueda verificar la informacion.
+
 ### Diagrama entidad-relacion
 
 ```mermaid
