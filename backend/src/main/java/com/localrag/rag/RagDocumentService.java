@@ -20,8 +20,10 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -29,6 +31,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
@@ -56,6 +59,12 @@ public class RagDocumentService {
 
     @Value("${rag.top-k:5}")
     private int topK;
+
+    @Value("${rag.ocr-enabled:true}")
+    private boolean ocrEnabled;
+
+    @Value("${rag.tesseract.tessdata-path:C:\\tesseract\\tessdata}")
+    private String tessDataPath;
 
     public RagDocumentService(DocumentoRepository documentoRepository, VectorStore vectorStore, TextSplitter textSplitter, DocumentoChunkRepository chunkRepository) {
         this.documentoRepository = documentoRepository;
@@ -171,8 +180,7 @@ public class RagDocumentService {
 
     private List<Document> readDocuments(File file, String fileType) throws IOException {
         if (fileType.equalsIgnoreCase("application/pdf")) {
-            PagePdfDocumentReader reader = new PagePdfDocumentReader(new FileSystemResource(file));
-            return reader.read();
+            return readPdfWithOcr(file);
         } else if (isTextFile(fileType)) {
             String content = new String(Files.readAllBytes(file.toPath()));
             Document doc = Document.builder()
@@ -188,6 +196,76 @@ public class RagDocumentService {
             return readCsv(file);
         } else {
             throw new DocumentProcessingException("Tipo de archivo no soportado: " + fileType);
+        }
+    }
+
+    private List<Document> readPdfWithOcr(File file) throws IOException {
+        PagePdfDocumentReader reader = new PagePdfDocumentReader(new FileSystemResource(file));
+        List<Document> documents = reader.read();
+
+        if (!ocrEnabled) {
+            return documents;
+        }
+
+        StringBuilder totalText = new StringBuilder();
+        for (Document doc : documents) {
+            totalText.append(doc.getText()).append("\n");
+        }
+
+        if (totalText.length() < 200) {
+            log.warn("[OCR] Poco texto extraido de {}, intentando OCR de imagenes incrustadas...", file.getName());
+            String ocrText = performOcrWithPython(file);
+            if (ocrText != null && ocrText.trim().length() > totalText.length()) {
+                Document ocrDoc = Document.builder()
+                        .text(ocrText)
+                        .metadata("source", file.getAbsolutePath())
+                        .metadata("ocr", true)
+                        .build();
+                return List.of(ocrDoc);
+            }
+        }
+
+        return documents;
+    }
+
+    private String performOcrWithPython(File pdfFile) {
+        try {
+            String scriptPath = Paths.get(System.getProperty("user.dir"), "scripts", "ocr_pdf.py").toString();
+            String pythonPath = System.getenv("PYTHON_PATH");
+            if (pythonPath == null || pythonPath.isBlank()) {
+                pythonPath = "python";
+            }
+
+            List<String> command = new ArrayList<>();
+            command.add(pythonPath);
+            command.add(scriptPath);
+            command.add(pdfFile.getAbsolutePath());
+            command.add(tessDataPath != null ? tessDataPath : "");
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.startsWith("warning:")) {
+                        output.append(line).append("\n");
+                    }
+                }
+            }
+
+            boolean finished = process.waitFor(300, TimeUnit.SECONDS);
+            if (finished && process.exitValue() == 0) {
+                return output.toString().trim();
+            } else {
+                log.warn("[OCR] Script de OCR termino con codigo de error: {}", finished ? process.exitValue() : "TIMEOUT");
+                return null;
+            }
+        } catch (Exception e) {
+            log.warn("[OCR] Error ejecutando script de OCR: {}", e.getMessage());
+            return null;
         }
     }
 

@@ -2,25 +2,22 @@
 
 Scripts y comandos para detener el entorno completo de forma sencilla.
 
-## Opción 1: Detener TODO con un script (recomendado)
-
-Abrir PowerShell en la raíz del proyecto y ejecutar:
+## Opcion 1: Detener TODO con un script (recomendado)
 
 ```powershell
 .\stop-environment.ps1
 ```
 
 Este script detiene:
-- Backend Spring Boot
-- Frontend React
-- Ollama
-- PostgreSQL
+- Backend Spring Boot (puerto 8080)
+- Frontend React (puerto 5173)
+- Ollama (puerto 11434)
 
-## Opción 2: Detener manualmente paso a paso
+## Opcion 2: Detener manualmente paso a paso
 
 ### 1. Detener Backend
 
-Si el backend está corriendo en una terminal, presionar `Ctrl+C` en esa terminal.
+Si el backend esta corriendo en una terminal, presionar `Ctrl+C` en esa terminal.
 
 Alternativamente, matar el proceso por puerto:
 
@@ -30,7 +27,7 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyCont
 
 ### 2. Detener Frontend
 
-Si el frontend está corriendo en una terminal, presionar `Ctrl+C` en esa terminal.
+Si el frontend esta corriendo en una terminal, presionar `Ctrl+C` en esa terminal.
 
 Alternativamente, matar el proceso por puerto:
 
@@ -45,14 +42,6 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyCont
 Stop-Process -Name "ollama" -Force -ErrorAction SilentlyContinue
 ```
 
-### 4. Detener PostgreSQL (opcional)
-
-Si quieres detener PostgreSQL también:
-
-```powershell
-Stop-Service postgresql-x64-16
-```
-
 ## Verificar que todo se detuvo
 
 ```powershell
@@ -62,4 +51,4 @@ Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue
 Get-Process ollama -ErrorAction SilentlyContinue
 ```
 
-Si no hay resultados, todo está detenido correctamente.
+Si no hay resultados, todo esta detenido correctamente.

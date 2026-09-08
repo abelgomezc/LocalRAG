@@ -41,6 +41,12 @@ public class RagQueryService {
     @Value("${rag.top-k:5}")
     private int topK;
 
+    @Value("${rag.crag-min-score:0.3}")
+    private double cragMinScore;
+
+    @Value("${rag.max-iterations:3}")
+    private int maxIterations;
+
     public RagQueryService(ChatClient.Builder chatClientBuilder, VectorStore vectorStore, DocumentRelationService relationService, DocumentoChunkRepository chunkRepository, ConversationRepository conversationRepository, MessageRepository messageRepository) {
         this.chatClient = chatClientBuilder.build();
         this.vectorStore = vectorStore;
@@ -67,27 +73,68 @@ public class RagQueryService {
             List<Message> history = messageRepository.findByConversationIdOrderByCreatedAtAsc(convId);
             String historyContext = buildHistoryContext(history);
 
+            // === AGENTIC RAG: loop con estrategias ===
             String normalizedQuery = rewriteQuery(question);
-            log.debug("[QUERY] Original: '{}' -> Normalizada: '{}'", question, normalizedQuery);
+            List<Document> relevantDocs = new ArrayList<>();
+            String context = "";
+            String relationsContext = "";
+            String answer = "";
+            List<Source> sources = new ArrayList<>();
+            String strategy = "initial";
+            int iterations = 0;
 
-            List<Document> relevantDocs = hybridSearch(normalizedQuery, topK);
-            if (relevantDocs.size() > topK) {
-                relevantDocs = relevantDocs.stream().limit(topK).collect(Collectors.toList());
+            while (iterations < maxIterations) {
+                iterations++;
+                log.info("[AGENT] Iteración {} con estrategia '{}'", iterations, strategy);
+
+                // === CRAG: buscar y evaluar calidad ===
+                relevantDocs = hybridSearch(normalizedQuery, topK);
+                if (relevantDocs.size() > topK) {
+                    relevantDocs = relevantDocs.stream().limit(topK).collect(Collectors.toList());
+                }
+
+                double qualityScore = evaluateRetrievalQuality(relevantDocs);
+                log.info("[CRAG] Calidad de retrieval: {} (minimo {})", qualityScore, cragMinScore);
+
+                if (qualityScore < cragMinScore && iterations < maxIterations) {
+                    log.warn("[CRAG] Calidad baja, corrigiendo query...");
+                    normalizedQuery = correctQuery(question, relevantDocs, strategy);
+                    strategy = "corrected";
+                    continue;
+                }
+
+                context = buildContext(relevantDocs);
+                relationsContext = buildRelationsContext(relevantDocs);
+
+                // === SELF-RAG: LLM genera con reflexion ===
+                log.info("[SELF-RAG] Generando respuesta con auto-reflexion...");
+                SelfRagResult result = generateWithSelfRag(question, context, relationsContext, historyContext, language, iterations);
+
+                if (result.needsMoreContext && iterations < maxIterations) {
+                    log.info("[SELF-RAG] LLM solicita mas contexto, iterando...");
+                    normalizedQuery = result.refinedQuery;
+                    strategy = "selfrag-more-context";
+                    continue;
+                }
+
+                answer = result.answer;
+                sources = buildSources(relevantDocs);
+
+                // === AGENTIC RAG: evaluar si la respuesta es buena ===
+                if (iterations < maxIterations) {
+                    boolean isGood = evaluateAnswerQuality(answer, question, context);
+                    if (!isGood) {
+                        log.warn("[AGENT] Respuesta de baja calidad, intentando otra estrategia...");
+                        normalizedQuery = rewriteQuery(question + " (reformulada para mayor precision)");
+                        strategy = "reformulated";
+                        continue;
+                    }
+                }
+
+                break;
             }
 
-            String context = buildContext(relevantDocs);
-            String relationsContext = buildRelationsContext(relevantDocs);
-
-            String answer;
-            try {
-                answer = CompletableFuture.supplyAsync(() ->
-                        generateAnswer(question, context, relationsContext, historyContext, language)
-                ).get(120, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.TimeoutException e) {
-                log.error("[CHAT] Timeout al generar respuesta para: {}", question);
-                throw new OllamaConnectionException("El modelo tardo demasiado en responder. Intenta nuevamente.");
-            }
-
+            // Guardar historial
             Message userMessage = new Message();
             userMessage.setConversationId(convId);
             userMessage.setRole("user");
@@ -104,7 +151,6 @@ public class RagQueryService {
 
             pruneOldMessages(convId);
 
-            List<Source> sources = buildSources(relevantDocs);
             return new ChatResponse(answer, sources);
         } catch (Exception e) {
             log.error("[CHAT] Error en consulta: {}", e.getMessage());
@@ -308,6 +354,122 @@ public class RagQueryService {
                     return new Source(fileName, page, chunk);
                 })
                 .collect(Collectors.toList());
+    }
+
+    // === CRAG: Evaluar calidad del retrieval ===
+    private double evaluateRetrievalQuality(List<Document> docs) {
+        if (docs == null || docs.isEmpty()) return 0.0;
+
+        double totalScore = 0.0;
+        int count = 0;
+        for (Document doc : docs) {
+            String text = doc.getText();
+            if (text != null && !text.isBlank()) {
+                totalScore += 1.0;
+                count++;
+            }
+        }
+        return count == 0 ? 0.0 : (double) count / docs.size();
+    }
+
+    private String correctQuery(String originalQuery, List<Document> poorResults, String strategy) {
+        String prompt = String.format("""
+                La siguiente consulta devolvio resultados de baja calidad.
+                Consulta original: %s
+                Estrategia: %s
+                
+                Reformula la consulta para mejorar la busqueda.
+                Devuelve SOLO la nueva consulta, sin explicaciones.
+                """, originalQuery, strategy);
+
+        try {
+            return chatClient.prompt()
+                    .user(prompt)
+                    .call()
+                    .content()
+                    .trim();
+        } catch (Exception e) {
+            log.warn("[CRAG] Error corrigiendo query: {}", e.getMessage());
+            return originalQuery;
+        }
+    }
+
+    // === SELF-RAG: LLM genera con auto-reflexion ===
+    private static class SelfRagResult {
+        String answer;
+        boolean needsMoreContext;
+        String refinedQuery;
+    }
+
+    private SelfRagResult generateWithSelfRag(String question, String context, String relationsContext,
+                                              String historyContext, String language, int iteration) {
+        String lang = language != null && !language.isBlank() ? language : "es";
+        String prompt = String.format("""
+                Eres un asistente que responde preguntas usando contexto de documentos.
+                INSTRUCCIONES DE AUTO-REFLEXION:
+                - Antes de responder, evalua si el contexto es suficiente.
+                - Si el contexto es insuficiente, escribe [NEEDS_MORE] seguido de la consulta reformulada.
+                - Si el contexto es suficiente, responde directamente.
+                - Si usas multiples documentos, mencionalos explicitamente.
+                
+                %s
+                
+                %s
+                
+                CONTEXTO:
+                %s
+                
+                PREGUNTA:
+                %s
+                
+                INSTRUCCIONES:
+                - Responde en idioma %s.
+                - Usa [NEEDS_MORE] <query> si necesitas mas contexto.
+                - No inventes informacion.
+                - Si el contexto no contiene suficiente informacion, dilo claramente.
+                """, historyContext.isEmpty() ? "" : historyContext + "\n",
+                relationsContext.isEmpty() ? "" : relationsContext + "\n",
+                context, question, lang);
+
+        try {
+            String raw = chatClient.prompt()
+                    .user(prompt)
+                    .call()
+                    .content()
+                    .trim();
+
+            SelfRagResult result = new SelfRagResult();
+            if (raw.startsWith("[NEEDS_MORE]")) {
+                result.needsMoreContext = true;
+                result.refinedQuery = raw.substring("[NEEDS_MORE]".length()).trim();
+                if (result.refinedQuery.isBlank()) {
+                    result.refinedQuery = question;
+                }
+                return result;
+            }
+
+            result.answer = raw;
+            result.needsMoreContext = false;
+            return result;
+        } catch (Exception e) {
+            log.error("[SELF-RAG] Error generando respuesta: {}", e.getMessage());
+            SelfRagResult result = new SelfRagResult();
+            result.answer = "Error al generar respuesta.";
+            result.needsMoreContext = false;
+            return result;
+        }
+    }
+
+    // === AGENTIC RAG: Evaluar calidad de la respuesta ===
+    private boolean evaluateAnswerQuality(String answer, String question, String context) {
+        if (answer == null || answer.length() < 10) return false;
+        if (answer.toLowerCase().contains("no lo se") ||
+            answer.toLowerCase().contains("no sé") ||
+            answer.toLowerCase().contains("no suficiente") ||
+            answer.toLowerCase().contains("error")) {
+            return false;
+        }
+        return true;
     }
 
     private static class ScoredDocument {

@@ -45,7 +45,52 @@ if (-not $ollamaProcess) {
     Start-Sleep -Seconds 3
     Write-Host "  Ollama iniciado." -ForegroundColor Green
 } else {
-    Write-Host "  Ollama ya está corriendo." -ForegroundColor Green
+Write-Host "  Ollama ya está corriendo." -ForegroundColor Green
+}
+
+# 3. Verificar Tesseract OCR (opcional, para PDFs escaneados)
+Write-Host "[2.5/4] Verificando Tesseract OCR..." -ForegroundColor Yellow
+$tesseractPath = Get-Command tesseract -ErrorAction SilentlyContinue
+if (-not $tesseractPath) {
+    $tesseractPath = "C:\Program Files\Tesseract-OCR\tesseract.exe"
+}
+if (Test-Path $tesseractPath) {
+    Write-Host "  Tesseract encontrado en: $tesseractPath" -ForegroundColor Green
+
+    $tessDataPaths = @(
+        "C:\tesseract\tessdata",
+        "C:\Program Files\Tesseract-OCR\tessdata"
+    )
+    $tessDataPath = $tessDataPaths | Where-Object { Test-Path "$_\spa.traineddata" } | Select-Object -First 1
+    if (-not $tessDataPath) {
+        Write-Host "  ADVERTENCIA: No se encontro spa.traineddata. El OCR estara deshabilitado." -ForegroundColor Red
+        $env:RAG_OCR_ENABLED = "false"
+    } else {
+        $env:TESSDATA_PREFIX = $tessDataPath
+        $env:TESSERACT_PATH = $tesseractPath
+        Write-Host "  tessdata: $tessDataPath" -ForegroundColor Green
+    }
+
+    $pythonPath = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pythonPath) {
+        $pythonPath = Get-Command python3 -ErrorAction SilentlyContinue
+    }
+    if (-not $pythonPath) {
+        Write-Host "  ADVERTENCIA: Python no encontrado. El OCR no funcionara." -ForegroundColor Red
+        $env:RAG_OCR_ENABLED = "false"
+    } else {
+        Write-Host "  Python encontrado: $($pythonPath.Source)" -ForegroundColor Green
+        $pymupdfCheck = & $pythonPath.Source -c "import fitz; print('OK')" 2>$null
+        if ($pymupdfCheck -ne "OK") {
+            Write-Host "  Instalando PyMuPDF..." -ForegroundColor Yellow
+            & $pythonPath.Source -m pip install pymupdf --quiet 2>$null
+        }
+        Write-Host "  PyMuPDF verificado." -ForegroundColor Green
+    }
+} else {
+    Write-Host "  Tesseract OCR no encontrado. El OCR estara deshabilitado." -ForegroundColor Red
+    Write-Host "  Instale Tesseract desde: https://github.com/UB-Mannheim/tesseract" -ForegroundColor Gray
+    $env:RAG_OCR_ENABLED = "false"
 }
 
 # 4. Verificar puertos disponibles
