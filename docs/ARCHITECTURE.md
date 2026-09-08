@@ -1,259 +1,292 @@
 # Arquitectura de LocalRAG
 
-Este documento describe la arquitectura interna de LocalRAG, sus componentes, patrones de diseno y flujo de datos.
+Documento tecnico que explica como esta construido LocalRAG, como interactuan sus partes y los conceptos RAG tal como se implementan en este proyecto.
 
 ---
 
-## Vision general
+## Objetivo del proyecto
 
-LocalRAG sigue una arquitectura **hexagonal / limpia** con separacion clara de responsabilidades:
+LocalRAG es un asistente de **Generacion Aumentada por Recuperacion (RAG)** 100% local. Nacio como proyecto de aprendizaje y portafolio con estos objetivos concretos:
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Frontend   │────▶│ Controller  │────▶│   Service   │
-│  (React)    │     │  (REST)     │     │  (RAG Core) │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                                 │
-                                    ┌────────────┼────────────┐
-                                    ▼            ▼            ▼
-                              ┌──────────┐ ┌──────────┐ ┌──────────┐
-                              │ Repository│ │ Vector   │ │   LLM    │
-                              │  (JPA)    │ │  Store   │ │ (Ollama) │
-                              └─────┬─────┘ └────┬─────┘ └──────────┘
-                                    │             │
-                                    ▼             ▼
-                              ┌─────────────────────────┐
-                              │    PostgreSQL + pgvector │
-                              └─────────────────────────┘
-```
+- Ejecutar un flujo RAG real sin servicios cloud.
+- Soportar multiples formatos de documento en una sola app.
+- Implementar capas de validacion y mejora del resultado (CRAG, Self-RAG, Agentic RAG).
+- Mantener una separacion clara entre presentacion (frontend), logica (backend) y almacenamiento.
+
+No busca competir con sistemas empresariales; busca ser un ejemplo completo, legible y ejecutable de arquitectura RAG moderna sobre un stack accesible.
 
 ---
 
-## Capas
+## Stack elegido y por que
 
-### 1. Frontend (React + TypeScript + Vite)
-
-**Responsabilidad:** Interfaz de usuario y experiencia.
-
-**Estructura:**
-- `context/AppContext.tsx` - Estado global (tema, idioma)
-- `i18n/translations.ts` - Traducciones ES/EN
-- `pages/HomePage.tsx` - Layout principal
-- `components/` - Componentes reutilizables (Chat, Documentos, Grafo, Visor)
-- `api/` - Cliente HTTP con Axios
-- `types/` - Interfaces TypeScript
-
-**Patrones:**
-- Componentes funcionales con Hooks
-- Context API para estado global
-- Proxy de Vite para llamadas al backend
-
-### 2. Backend (Spring Boot)
-
-**Responsabilidad:** API REST, logica de negocio y orquestacion RAG.
-
-**Estructura:**
-- `controller/` - Endpoints REST (Documentos, Chat, Health, Logs)
-- `service/` - Logica de negocio
-- `rag/` - Motor RAG (core del sistema)
-- `entity/` - Entidades JPA
-- `repository/` - Spring Data JPA
-- `dto/` - Objetos de transferencia
-- `exception/` - Manejo de errores
-
-**Patrones:**
-- RESTful API
-- Inyeccion de dependencias (Spring)
-- DTOs para request/response
-- Excepciones custom con GlobalExceptionHandler
-
-### 3. Motor RAG
-
-**Responsabilidad:** Procesamiento de documentos y generacion de respuestas.
-
-**Componentes:**
-
-#### RagDocumentService (Ingestion)
-
-```
-Archivo subido
-    │
-    ▼
-[Validacion] - tipo, tamano, cantidad
-    │
-    ▼
-[Lectura] - PDFReader, MarkdownReader, POI (Word/Excel)
-    │
-    ▼
-[OCR si es necesario] - Tesseract + PyMuPDF
-    │
-    ▼
-[Chunking] - TokenTextSplitter (1000 tokens, 150 overlap)
-    │
-    ▼
-[Embeddings] - bge-m3 via Ollama
-    │
-    ▼
-[Almacenamiento] - Vector Store + PostgreSQL
-```
-
-#### RagQueryService (Retrieval + Generation)
-
-```
-Pregunta del usuario
-    │
-    ▼
-[Reescritura de consulta] - mejora la pregunta
-    │
-    ▼
-[Busqueda hibrida]
-    │
-    ├── Vector similarity (bge-m3 embeddings)
-    └── Full-text search (PostgreSQL ts_rank)
-    │
-    ▼
-[Evaluacion CRAG] - score promedio de similitud
-    │
-    ├── ALTO → continuar
-    └── BAJO → correccion (re-query, fallback)
-    │
-    ▼
-[Generacion Self-RAG]
-    │
-    ├── [Retrieve] → mas contexto
-    ├── [IsRelevant] → evaluar relevancia
-    └── [Support] → generar respuesta
-    │
-    ▼
-[Agente RAG] - evaluacion final y posible iteracion
-    │
-    ▼
-[Respuesta con fuentes]
-```
-
-### 4. Persistencia
-
-**PostgreSQL + pgvector:**
-- Almacena documentos, chunks, conversaciones, mensajes y relaciones
-- Full-text search con configuracion `spanish`
-- Vector store complementario en memoria (SimpleVectorStore)
-
-**Flyway:**
-- Migraciones de base de datos versionadas
-- Actualmente deshabilitado (`spring.flyway.enabled=false`), usa `ddl-auto=update`
+| Capa | Eleccion | Motivo |
+|------|----------|--------|
+| Backend | Spring Boot 3.3.4 + Java 21 | Madurez, ecosistema y soporte oficial para Spring AI. |
+| IA/Embeddings | Ollama | Correr modelos locales sin dependencias cloud ni APIs pagas. |
+| Embedding | bge-m3 | Buen balance entre tamanio y calidad multilingue. |
+| Chat | qwen3-8b-fast | Modelo pequeno/rapido razonable para QA local. |
+| Base de datos | PostgreSQL 16 + pgvector | SQL familiar + soporte nativo para vectores y full-text. |
+| OCR | Tesseract 5 + PyMuPDF | Cobertura decente para PDFs escaneados sin coste. |
+| Frontend | React 18 + TypeScript + Vite | Carga rapida, estado predecible y DX simple. |
 
 ---
 
-## Entidades principales
+## Estructura del proyecto
 
 ```
-Documento (1) ──< (N) DocumentoChunk
-   │
-   └───< (N) DocumentRelation (N) >─── (N) Documento
-
-Conversation (1) ──< (N) Message
+LocalRAG/
+├── README.md
+├── START.md
+├── STOP.md
+├── start-environment.ps1
+├── stop-environment.ps1
+├── backend/
+│   ├── pom.xml
+│   ├── .env
+│   ├── scripts/
+│   │   └── ocr_pdf.py
+│   └── src/main/
+│       ├── java/com/localrag/
+│       │   ├── LocalRagApplication.java
+│       │   ├── controller/
+│       │   ├── entity/
+│       │   ├── exception/
+│       │   ├── rag/
+│       │   ├── repository/
+│       │   ├── service/
+│       │   └── dto/
+│       └── resources/
+│           ├── application.properties
+│           └── db/migration/
+├── docs/
+│   ├── ARCHITECTURE.md
+│   └── rag-approaches.md
+└── frontend/
+    ├── package.json
+    ├── vite.config.ts
+    └── src/
+        ├── main.tsx
+        ├── App.tsx
+        ├── api/
+        ├── components/
+        ├── context/
+        ├── i18n/
+        ├── pages/
+        └── types/
 ```
 
-### Relaciones entre documentos
-
-El sistema soporta un grafo dirigido de documentos:
-
-```
-Documento A ──relacion──> Documento B
-    │                           │
-    └──relacion──> Documento C <──┘
-```
-
-Se visualiza como un grafo interactivo en el frontend usando `reactflow`.
+Cada carpeta tiene una responsabilidad concreta y se evita mezclar logica de UI con logica de dominio.
 
 ---
 
-## Flujos principales
+## Backend: organizacion y responsabilidades
 
-### Flujo: Carga de documento
+### Entradas: controllers
 
-1. Usuario selecciona archivo(s) en el frontend
-2. Frontend envia `POST /api/documents/upload` (multipart/form-data)
-3. Backend valida tamano, tipo y cantidad (max 5)
-4. Archivo se guarda en `uploads/`
-5. `RagDocumentService` procesa el archivo:
-   - Determina tipo y lector apropiado
-   - Extrae texto (con OCR si es PDF escaneado)
-   - Chunking con `TokenTextSplitter`
-   - Genera embeddings con `bge-m3`
-   - Guarda chunks en PostgreSQL y vector store
-6. Retorna `DocumentoUploadResponse` con estado
+Los controllers exponen endpoints REST y se limitan a:
+- parsear request
+- validar lo basico
+- delegar a services
+- armar responses
 
-### Flujo: Consulta (Chat)
+Entidades principales:
+- `DocumentosController` - endpoints de documentos
+- `ChatController` - consultas y health check
+- `HealthController` / `LogsController` - diagnostico
 
-1. Usuario envia pregunta en el chat
-2. Frontend envia `POST /api/chat` con `question` y `conversationId`
-3. `RagQueryService.ask()`:
-   - Reescribe la consulta para mejor recuperacion
-   - Ejecuta busqueda hibrida (vector + full-text)
-   - Evalua calidad con CRAG (score umbral configurable)
-   - Si es baja, aplica correccion
-   - Genera respuesta con Self-RAG (reflexion LLM)
-   - Evalua respuesta final con Agentic RAG
-4. Persiste pregunta y respuesta en `messages`
-5. Retorna `ChatResponse` con respuesta y fuentes
+### Logica: services y motor RAG
 
----
+Aqui vive el comportamiento real del sistema.
 
-## Configuracion por variables
+**RagDocumentService**
+- decide como leer un archivo segun su tipo
+- ejecuta OCR cuando corresponde
+- aplica chunking
+- genera embeddings
+- persiste resultados
 
-Todas las configuraciones criticas se exponen como variables de entorno en `application.properties`:
+**RagQueryService**
+- reescribe la consulta
+- ejecuta la busqueda hibrida
+- aplica CRAG
+- genera respuesta con Self-RAG
+- ejecuta la capa Agentic RAG
 
-| Variable | Default | Descripcion |
-|----------|---------|-------------|
-| `DATABASE_USERNAME` | postgres | Usuario PostgreSQL |
-| `DATABASE_PASSWORD` | 1234 | Password PostgreSQL |
-| `OLLAMA_BASE_URL` | http://localhost:11434 | URL de Ollama |
-| `OLLAMA_CHAT_MODEL` | qwen3-8b-fast | Modelo de chat |
-| `OLLAMA_EMBEDDING_MODEL` | bge-m3 | Modelo de embeddings |
-| `OLLAMA_TEMPERATURE` | 0.2 | Temperatura del LLM |
-| `RAG_CHUNK_SIZE` | 1000 | Tamano de chunk en tokens |
-| `RAG_CHUNK_OVERLAP` | 150 | Overlap entre chunks |
-| `RAG_TOP_K` | 5 | Cantidad de resultados a recuperar |
-| `RAG_MAX_FILE_SIZE` | 50MB | Tamano maximo de archivo |
-| `RAG_OCR_ENABLED` | true | Habilitar OCR |
-| `RAG_CRG_MIN_SCORE` | 0.3 | Score minimo para considerar valida la busqueda |
-| `RAG_MAX_ITERATIONS` | 3 | Maximo de iteraciones del agente |
-| `TESSDATA_PREFIX` | C:\tesseract\tessdata | Ruta a datos de Tesseract |
+**DocumentoService y DocumentRelationService**
+- gestionan metadata de documentos y relaciones
+
+### Almacenamiento: repositories
+
+- `DocumentoRepository`, `DocumentoChunkRepository`, `ConversationRepository`, `MessageRepository`, `DocumentRelationRepository`
+- Traducen operaciones sobre entidades a SQL sin exponer JPA al resto del codigo.
+
+### Estructura de datos: entities
+
+El modelo relacional esta pensado para documentos y conversaciones:
+
+- `documento` - metadata del archivo original
+- `documento_chunk` - fragmentos con texto y metadatos
+- `conversation` - sesion de chat
+- `message` - turno individual del chat
+- `document_relation` - vinculaciones semantica entre documentos
 
 ---
 
-## Dependencias clave
+## Frontend: organizacion y responsabilidades
 
-### Backend (Maven)
+### Estado global
 
-| Dependencia | Proposito |
-|-------------|-----------|
-| `spring-boot-starter-web` | API REST |
-| `spring-boot-starter-data-jpa` | Persistencia |
-| `spring-ai-starter-model-ollama` | Integracion con Ollama |
-| `spring-ai-vector-store` | Almacenamiento vectorial |
-| `spring-ai-pdf-document-reader` | Lectura de PDFs |
-| `spring-ai-markdown-document-reader` | Lectura de Markdown |
-| `spring-ai-rag` | Utilidades RAG |
-| `apache-poi` | Lectura de Word/Excel |
-| `flyway-core` | Migraciones de BD |
-| `postgresql` | Driver JDBC |
+`context/AppContext.tsx` mantiene:
+- idioma activo (`es` / `en`)
+- tema (`light` / `dark`)
 
-### Frontend (npm)
+Evita props drilling y centraliza cambios globales.
 
-| Dependencia | Proposito |
-|-------------|-----------|
-| `react` | UI framework |
-| `react-dom` | Renderizado DOM |
-| `axios` | Cliente HTTP |
-| `vite` | Build tool y dev server |
+### Internacionalizacion
+
+`i18n/translations.ts` contiene las cadenas en espanol e ingles. Los componentes consumen traducciones por clave en vez de textos hardcodeados.
+
+### Cliente HTTP
+
+`api/documentsApi.ts`, `api/chatApi.ts` y `api/logsApi.ts` encapsulan las llamadas al backend. Si cambia la URL o el formato, el cambio se concentra en estos archivos.
+
+### Componentes principales
+
+- `DocumentUpload` - seleccion y carga de archivos
+- `DocumentList` - inventario de documentos procesados
+- `ChatWindow` / `ChatMessage` - interfaz conversacional
+- `DocumentViewer` - previsualizacion de contenido
+- `DocumentGraph` / `DocumentRelations` - grafo y administracion de vinculos
+- `SourceList` - referencias recuperadas para una respuesta
+- `LoadingIndicator` - feedback de carga
+
+### Routing
+
+`pages/HomePage.tsx` actua como layout principal y orquesta la disposicion de los componentes.
 
 ---
 
-## Limitaciones conocidas
+## Flujo: como se usa el sistema desde el usuario
 
-- Maximo 5 archivos por carga (configurable en frontend)
-- Memoria limitada para vector store en produccion (usar pgvector nativo para escalar)
-- OCR funciona mejor con Tesseract 5.x y datos de idioma instalados
-- Modelos grandes pueden requerir GPU para rendimiento aceptable
+### 1. Cargar documentos
+
+- El usuario sube hasta 5 archivos.
+- El backend almacena los archivos en `uploads/`.
+- El sistema extrae texto:
+  - nativo cuando es posible
+  - por OCR si detecta PDF escaneado
+- Divide el texto en chunks.
+- Genera embeddings con `bge-m3`.
+- Guarda chunks en PostgreSQL y en el vector store.
+
+### 2. Consultar
+
+- El usuario escribe una pregunta en el chat.
+- El backend reescribe la consulta.
+- Busca por similitud vectorial y por palabras clave.
+- Evalua si la busqueda fue buena (CRAG).
+- Genera la respuesta con instrucciones de auto-verificacion (Self-RAG).
+- Evalua si la respuesta es usable (Agentic RAG).
+- Devuelve la respuesta y las fuentes.
+
+### 3. Vincular documentos
+
+- El usuario crea relaciones entre documentos.
+- El frontend muestra un grafo dirigido.
+- Esto permite capturar conocimiento estructural: capitulos, anexos, contratos relacionados, etc.
+
+### 4. Conversar con memoria
+
+- Cada sesion conserva su historial.
+- El historial se almacena en `conversations` y `messages`.
+- El usuario puede continuar una conversacion anterior usando el `conversationId`.
+
+---
+
+## Conceptos RAG en el contexto de este proyecto
+
+### Recuperacion
+
+Es la etapa donde el sistema busca fragmentos relevantes. En este proyecto se hace de dos formas:
+
+- **Densa**: embeddings con `bge-m3`, comparados por similitud.
+- **Explicita**: busqueda por palabras clave con `ts_rank`.
+
+Ambas se combinan para reducir falsos negativos.
+
+### Chunking
+
+Los documentos no se almacenan completos. Se dividen en fragmentos manejables. En LocalRAG se usa un tamanio de 1000 tokens con 150 de solapamiento. Esto ayuda a preservar contexto en bordes sin perder precision.
+
+### Embeddings
+
+Convierte texto en vectores numericos. `bge-m3` genera representaciones que capturan significado, por lo que dos frases similares terminan cerca en el espacio vectorial.
+
+### RAG lineal
+
+Es el flujo basico: pregunta -> busqueda -> respuesta. Es util para documentacion pequena y preguntas directas, pero no corrige fallos.
+
+### CRAG (Corrective RAG)
+
+Agrega una validacion intermedia. Si la busqueda devuelve fragmentos poco relevantes, el sistema corrige antes de generar. En la practica reduce respuestas alucinadas cuando el tema esta poco cubierto por los documentos cargados.
+
+### Self-RAG
+
+El modelo genera la respuesta con puntos de control internos. En vez de solo "responder", puede marcar si necesita mas contexto o si la respuesta esta bien fundamentada. Esto ayuda a mejorar la calidad sin cambiar el modelo.
+
+### Agentic RAG
+
+Es la capa de decision superior. Evalua la respuesta y decide si repetir, reformular o entregar el resultado. Convierte el flujo en un proceso iterativo controlado en vez de una unica pasada.
+
+---
+
+## Decisiones tecnicas relevantes
+
+### ¿Por que PostgreSQL ademas del vector store?
+
+PostgreSQL almacena el contenido real y permite busqueda full-text. El vector store complementa la busqueda semantica. Esta combinacion da precision sin perder cobertura.
+
+### ¿Por que SimpleVectorStore y no pgvector directo para vectores?
+
+En esta etapa del proyecto se prefirio simplicidad y claridad pedagogica. SimpleVectorStore permite iterar rapido. En el futuro pgvector directo escala mejor en produccion.
+
+### ¿Por que Ollama?
+
+Permite cambiar de modelo sin modificar contratos ni pagar APIs. El costo es controlado y el experimento queda en la maquina.
+
+### ¿Por que no Flyway activo?
+
+Las entidades ya generan el esquema con `ddl-auto=update`. Flyway queda disponible cuando se necesite control total de migraciones sin tocar codigo de entidades.
+
+---
+
+## Configuracion relevante
+
+### Backend
+
+```
+spring.ai.ollama.base-url=http://localhost:11434
+spring.ai.ollama.chat.options.model=qwen3-8b-fast
+spring.ai.ollama.embedding.options.model=bge-m3
+rag.chunk-size=1000
+rag.chunk-overlap=150
+rag.top-k=5
+rag.ocr-enabled=true
+rag.crg-min-score=0.3
+rag.max-iterations=3
+```
+
+### Frontend
+
+- Puerto: `5173`
+- Proxy hacia backend: `/api` y `/uploads`
+- Temas e idioma gestionados por `AppContext`
+
+---
+
+## Limitaciones actuales
+
+- Maximo 5 archivos por carga.
+- El vector store en memoria no escala igual que una solucion nativa de vectores.
+- OCR depende de Tesseract y su entrenamiento de idioma.
+- Los modelos de Ollama consumen recursos locales significativos.

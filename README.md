@@ -552,9 +552,10 @@ spring.ai.ollama.read-timeout=120s
 
 ## Documentacion adicional
 
+- `docs/ARCHITECTURE.md` - Arquitectura del proyecto, organizacion frontend/backend, conceptos RAG y flujos especificos
+- `docs/rag-approaches.md` - Profundizacion en CRAG, Self-RAG y Agentic RAG
 - `START.md` - Guia de inicio rapido
 - `STOP.md` - Guia de detencion del entorno
-- `docs/rag-approaches.md` - Documentacion tecnica de arquitecturas RAG
 
 ---
 
