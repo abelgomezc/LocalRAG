@@ -79,7 +79,12 @@ public class RagDocumentService {
             List<Document> chunks = splitDocuments(documents);
             addMetadata(chunks, fileName, fileType);
             cleanChunks(chunks);
-            vectorStore.add(chunks);
+            final int EMBEDDING_BATCH_SIZE = 50;
+            for (int i = 0; i < chunks.size(); i += EMBEDDING_BATCH_SIZE) {
+                int end = Math.min(i + EMBEDDING_BATCH_SIZE, chunks.size());
+                vectorStore.add(chunks.subList(i, end));
+                log.debug("[INGEST] Embedded batch [{}/{}] for {}", end, chunks.size(), fileName);
+            }
 
             List<DocumentoChunk> chunkEntities = chunks.stream()
                     .map(chunk -> {
@@ -126,6 +131,14 @@ public class RagDocumentService {
                     .orElseThrow(() -> new DocumentNotFoundException(documentId));
             String fileName = documento.getNombreArchivo();
 
+            List<DocumentoChunk> chunks = chunkRepository.findByDocumentoIdOrderByChunkNumeroAsc(fileName);
+            List<String> chunkIds = chunks.stream()
+                    .map(chunk -> chunk.getId().toString())
+                    .collect(Collectors.toList());
+            if (!chunkIds.isEmpty()) {
+                vectorStore.delete(chunkIds);
+            }
+
             documentoRepository.delete(documento);
             chunkRepository.deleteByDocumentoId(fileName);
 
@@ -145,6 +158,14 @@ public class RagDocumentService {
 
     public void deleteAllDocuments() {
         try {
+            List<DocumentoChunk> allChunks = chunkRepository.findAll();
+            List<String> chunkIds = allChunks.stream()
+                    .map(chunk -> chunk.getId().toString())
+                    .collect(Collectors.toList());
+            if (!chunkIds.isEmpty()) {
+                vectorStore.delete(chunkIds);
+            }
+
             List<Documento> todos = documentoRepository.findAll();
             log.info("[CLEAN] Eliminando {} documentos del sistema...", todos.size());
 
