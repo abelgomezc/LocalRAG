@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import axios from 'axios';
 import { documentsApi } from '../api/documentsApi';
 import { useApp } from '../context/AppContext';
 
@@ -80,7 +81,12 @@ export function DocumentUpload({ onUploaded }: { onUploaded: () => void }) {
         setProgress(0);
       }, 500);
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || t('errorUpload');
+      let message = err?.response?.data?.message || err?.message || t('errorUpload');
+      if (axios.isAxiosError(err)) {
+        if (err.code === 'ECONNABORTED' || (err.message && err.message.includes('timeout'))) {
+          message = 'El procesamiento tardo demasiado. El documento es muy grande o el servidor esta ocupado. Intenta con un archivo mas pequeno.';
+        }
+      }
       setError(message);
       setProgress(0);
     } finally {
