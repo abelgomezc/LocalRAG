@@ -30,6 +30,11 @@ frontend/.vite/
 .env
 .env.local
 
+# Uploaded files (user content, never commit)
+uploads/
+backend/uploads/
+frontend/uploads/
+
 # Logs
 *.log
 logs/
