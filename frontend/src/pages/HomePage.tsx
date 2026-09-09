@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
+import axios from 'axios';
 import { DocumentUpload } from '../components/DocumentUpload';
 import { DocumentList } from '../components/DocumentList';
 import { DocumentGraph } from '../components/DocumentGraph';
@@ -75,14 +76,23 @@ export function HomePage() {
         ...prev,
         { role: 'assistant', text: response.answer, sources: response.sources },
       ]);
-    } catch {
+    } catch (err: any) {
+      console.error('Chat error:', err);
+      let message: string;
+      if (axios.isAxiosError(err)) {
+        if (err.code === 'ECONNABORTED' || (err.message && err.message.includes('timeout'))) {
+          message = t('errorTimeout');
+        } else {
+          message = err?.response?.data?.message || t('errorObtaining');
+        }
+      } else {
+        message = t('errorObtaining');
+      }
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          text: language === 'es'
-            ? 'Error al obtener respuesta. Por favor, intenta nuevamente.'
-            : 'Error getting response. Please try again.',
+          text: message,
         },
       ]);
     } finally {

@@ -238,8 +238,13 @@ public class RagQueryService {
 
     private String buildContext(List<Document> documents) {
         StringBuilder sb = new StringBuilder();
+        final int MAX_CHUNK_CHARS = 3000;
         for (Document doc : documents) {
-            sb.append("Chunk: ").append(doc.getText()).append("\n\n");
+            String text = doc.getText();
+            if (text != null && text.length() > MAX_CHUNK_CHARS) {
+                text = text.substring(0, MAX_CHUNK_CHARS) + "...[truncado]";
+            }
+            sb.append("Chunk: ").append(text).append("\n\n");
         }
         return sb.toString();
     }

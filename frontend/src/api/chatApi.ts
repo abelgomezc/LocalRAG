@@ -3,7 +3,7 @@ import { ChatResponse } from '../types/chat.types';
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 120000,
+  timeout: 300000,
 });
 
 export const chatApi = {
