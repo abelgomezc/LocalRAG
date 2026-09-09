@@ -127,7 +127,7 @@ $backendCmd = ""
 foreach ($key in $envVars.Keys) {
     $backendCmd += "set `"$key=$($envVars[$key])`" && "
 }
-$backendCmd += "cd /d `"$backendPath`" && mvn spring-boot:run > `"$backendLog`" 2>&1"
+$backendCmd += "set MAVEN_OPTS=-Xmx2048m && cd /d `"$backendPath`" && mvn spring-boot:run > `"$backendLog`" 2>&1"
 
 Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $backendCmd -WindowStyle Hidden
 Write-Host "  Backend iniciado (log: logs/backend.log)" -ForegroundColor Green
